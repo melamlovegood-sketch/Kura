@@ -7,7 +7,7 @@ import { useWishlistStore } from '@/store/wishlist'
 import { useSettingsStore } from '@/store/settings'
 import { uploadWishlistImage } from '@/lib/wishlistImage'
 import { extractWishlistFields } from '@/lib/wishlistExtract'
-import { fileToBase64, formatAmount, cn } from '@/lib/utils'
+import { formatAmount, cn } from '@/lib/utils'
 import type { WishlistItem } from '@/types/db'
 
 /**
@@ -25,7 +25,9 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
   const update = useWishlistStore((s) => s.update)
   const dismiss = useWishlistStore((s) => s.dismiss)
   const markPurchased = useWishlistStore((s) => s.markPurchased)
-  const adapter = useSettingsStore((s) => s.adapter)
+  // The screenshot extraction calls our /api/analyze-image function (Qwen vision)
+  // with the user's own key in the body — so we read the raw key, not the adapter.
+  const aiApiKey = useSettingsStore((s) => s.aiApiKey)
 
   const [showWorth, setShowWorth] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
@@ -61,17 +63,16 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
   // 「上传截图让 AI 填写」: extract fields from the screenshot, write back only the
   // non-null ones (never clobber what's already there). Upload + set as 主图 only
   // when the model says it's a product photo, not a label/tag. Shared by the
-  // click-to-upload button and the drag-and-drop zone. `base64` is reused when
-  // the drop zone already computed it.
-  async function runAiExtract(file: File, base64?: string) {
-    if (!adapter) { setError('请先在设置里填写 API Key'); return }
+  // click-to-upload button and the drag-and-drop zone.
+  async function runAiExtract(file: File) {
+    if (!aiApiKey) { setError('请先在设置里填写 API Key'); return }
 
     setError(null); setAiBusy(true)
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
     try {
-      const fields = await extractWishlistFields(adapter, base64 ?? await fileToBase64(file), ctrl.signal)
+      const fields = await extractWishlistFields(aiApiKey, file, ctrl.signal)
 
       const patch: Partial<WishlistItem> = {}
       if (fields.name) patch.item_name = fields.name
@@ -128,7 +129,7 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
       onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose() }}
     >
       <ImageDropZone
-        onFile={(base64, file) => void runAiExtract(file, base64)}
+        onFile={(_base64, file) => void runAiExtract(file)}
         overlayContent={<span className="text-sm text-ink-3">松开，让 AI 识别商品</span>}
         className="flex max-h-[92vh] w-full max-w-[640px] flex-col rounded-t-2xl bg-card [animation:sheet-slide-up_0.28s_cubic-bezier(0.32,0.72,0,1)]"
       >

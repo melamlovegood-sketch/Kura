@@ -2,10 +2,10 @@ import type { AIAdapter, AIMessage } from '../types'
 
 // Qwen uses an OpenAI-compatible endpoint via dashscope. We never call dashscope
 // directly from the browser — that fails with ERR_CONNECTION_CLOSED in mainland
-// China — so every request goes through our same-origin serverless proxy
-// (api/dashscope.ts), which forwards it server-side and streams the SSE response
-// back unchanged. The Authorization header is still sent so the proxy can fall
-// back to the user's own key when DASHSCOPE_API_KEY isn't set on the server.
+// China — so every request goes through our same-origin Cloudflare Pages Function
+// (functions/api/dashscope.ts), which forwards it server-side and streams the SSE
+// response back unchanged. The user's own API key (from Settings) rides along in
+// the Authorization header; the function just relays it — no server-side secret.
 const PROXY_URL = '/api/dashscope'
 
 export class QwenAdapter implements AIAdapter {
