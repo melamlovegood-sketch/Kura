@@ -85,8 +85,10 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
       if (fields.size) patch.size = fields.size
       if (fields.channel) patch.channel = fields.channel
 
-      // Only persist (and reference) the upload when it's a usable main photo.
-      if (fields.is_product_photo) {
+      // Save the upload as the 主图 when the model says it's a product photo, or
+      // whenever the item still has no image at all — better a screenshot than the
+      // 暂无主图 placeholder. Updating image_url re-renders the image immediately.
+      if (fields.is_product_photo || !it.image_url) {
         try { patch.image_url = await uploadWishlistImage(file, it.id) }
         catch { /* upload failed — keep the extracted text fields */ }
       }

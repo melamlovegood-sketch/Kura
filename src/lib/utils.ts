@@ -14,8 +14,8 @@ export function formatMonth(month: string): string {
   return `${y}年${Number(m)}月`
 }
 
-/** Convert a File to a base64 data URI */
-export async function fileToBase64(file: File): Promise<string> {
+/** Convert a File/Blob to a base64 data URI */
+export async function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
