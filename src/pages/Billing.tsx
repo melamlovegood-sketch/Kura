@@ -343,7 +343,7 @@ function AIRecordCard({ onSaved }: { onSaved: () => Promise<void> }) {
             {busy ? '识别中…' : 'AI 解析'}
           </Button>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onInputFile} />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onInputFile} />
       </ImageDropZone>
 
       {error && <p className="mt-3 text-[13px] text-red-500">{error}</p>}

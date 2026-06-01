@@ -355,7 +355,7 @@ function RecordingAIFill({ onFilled }: { onFilled: (p: { item_name: string; esti
         <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 text-[12px] text-ink-4 transition-colors hover:text-ink-3">
           <Paperclip size={13} /> 上传截图
         </button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
+        <input ref={fileRef} type="file" accept="image/*" className="hidden"
           onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; setImage({ name: f.name, base64: await fileToBase64(f) }); e.target.value = '' }} />
         <div className="flex-1" />
         <Button size="sm" onClick={() => void handleParse()} disabled={!hasInput || busy}>{busy ? '识别中…' : 'AI 填写'}</Button>

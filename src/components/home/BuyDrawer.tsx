@@ -290,7 +290,6 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
           ref={fileRef}
           type="file"
           accept="image/*"
-          capture="environment"
           className="hidden"
           onChange={handleInputFileSelect}
         />
