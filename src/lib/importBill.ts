@@ -1,11 +1,14 @@
 /**
- * 历史账单批量导入 — 微信/支付宝 CSV 解析。
+ * 历史账单批量导入 — 微信 .xlsx / 支付宝 .csv 解析。
  *
- * 全部在前台完成：解码（自动识别 UTF-8 / GBK）→ 通过文件内容识别平台（不依赖文件名）
- * → 定位表头并按列名取值 → 过滤退款/转账/收入 → 归一化为 RawRecord → 同平台去重。
+ * 全部在前台完成：
+ *   微信 → SheetJS 读取 xlsx，跳过前 16 行说明文字，按列名取值；
+ *   支付宝 → 解码（自动识别 UTF-8 / GBK）后解析 CSV，逻辑保持不变。
+ * 二者统一走 parseRows：定位表头 → 过滤退款/转账/收入 → 归一化为 RawRecord。
+ * 去重以「交易单号」为准（同号即同笔，缺号时回退到 日期+金额+描述相似度）。
  * AI 分类在 importClassify.ts，写库在页面里。
+ * SheetJS 体积较大，仅在解析微信 xlsx 时按需动态加载，不进入首屏包。
  */
-
 export type Platform = 'wechat' | 'alipay'
 
 export interface RawRecord {
@@ -14,6 +17,8 @@ export interface RawRecord {
   description: string
   amount: number
   platform: Platform
+  /** 交易单号，用于去重；部分行可能缺失。 */
+  transactionNo?: string
 }
 
 export interface ParseResult {
@@ -116,14 +121,12 @@ function parseAmount(s: string): number {
 }
 
 /**
- * 解析一份已解码的 CSV 文本。platform 可显式传入（步骤1勾选的结果），
- * 传 null 时按内容自动识别。
+ * 把一张二维表（已切成 string[][]，含表头）按列名解析为 RawRecord。
+ * 微信 xlsx 与支付宝 csv 共用这套列名匹配 + 过滤逻辑，平台差异只在描述字段拼装。
  */
-export function parseBillCsv(content: string, platform: Platform | null): ParseResult {
-  const detected = platform ?? detectPlatform(content)
-  const rows = parseCsv(content)
+export function parseRows(rows: string[][], platform: Platform): ParseResult {
   const header = findHeader(rows)
-  if (!detected || !header) return { platform: detected, records: [], total: 0, skipped: 0 }
+  if (!header) return { platform, records: [], total: 0, skipped: 0 }
 
   const { cells } = header
   const dateCol =
@@ -140,6 +143,11 @@ export function parseBillCsv(content: string, platform: Platform | null): ParseR
     colIndex(cells, (c) => c === '当前状态') >= 0 ? colIndex(cells, (c) => c === '当前状态')
     : colIndex(cells, (c) => c === '交易状态')
   const counterpartyCol = colIndex(cells, (c) => c.includes('交易对方'))
+  // 交易单号用于去重：微信叫「交易单号」，支付宝叫「交易号 / 交易订单号」。
+  const txnNoCol =
+    colIndex(cells, (c) => c.includes('交易单号')) >= 0 ? colIndex(cells, (c) => c.includes('交易单号'))
+    : colIndex(cells, (c) => c.includes('交易订单号')) >= 0 ? colIndex(cells, (c) => c.includes('交易订单号'))
+    : colIndex(cells, (c) => c.includes('交易号'))
 
   const get = (row: string[], i: number) => (i >= 0 ? (row[i] ?? '').trim() : '')
 
@@ -166,11 +174,43 @@ export function parseBillCsv(content: string, platform: Platform | null): ParseR
     const date = normDate(get(row, dateCol))
     if (!date) { skipped++; continue }
 
-    const desc = get(row, descCol) || get(row, counterpartyCol) || '未知消费'
-    records.push({ date, description: desc, amount: Math.round(amount * 100) / 100, platform: detected })
+    // 微信：交易对方 + 商品 拼成描述；支付宝沿用「商品说明」。
+    const counterparty = get(row, counterpartyCol)
+    const goods = get(row, descCol)
+    const description =
+      platform === 'wechat'
+        ? [counterparty, goods].filter(Boolean).join(' ') || '未知消费'
+        : goods || counterparty || '未知消费'
+
+    const transactionNo = get(row, txnNoCol) || undefined
+    records.push({ date, description, amount: Math.round(amount * 100) / 100, platform, transactionNo })
   }
 
-  return { platform: detected, records, total, skipped }
+  return { platform, records, total, skipped }
+}
+
+/**
+ * 解析一份已解码的 CSV 文本（支付宝）。platform 可显式传入，传 null 时按内容自动识别。
+ */
+export function parseBillCsv(content: string, platform: Platform | null): ParseResult {
+  const detected = platform ?? detectPlatform(content)
+  if (!detected) return { platform: null, records: [], total: 0, skipped: 0 }
+  return parseRows(parseCsv(content), detected)
+}
+
+/**
+ * 解析微信账单 .xlsx。前 16 行是说明文字，第 17 行起为「表头 + 数据」，
+ * 这里读出整张表后交给 parseRows 按列名定位表头，跳过行数差异更稳。
+ */
+export async function parseWechatXlsx(file: File): Promise<ParseResult> {
+  const XLSX = await import('xlsx')
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  const sheet = wb.Sheets[wb.SheetNames[0]]
+  if (!sheet) return { platform: 'wechat', records: [], total: 0, skipped: 0 }
+  // header:1 → 每行一个字符串数组；raw:false 保证日期/金额都拿到格式化后的文本。
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false, defval: '' })
+  return parseRows(rows, 'wechat')
 }
 
 /* ── 去重：同平台 + 同日期 + 同金额 + 商品名相似度 > 0.9 视为重复 ───────────────── */
@@ -207,20 +247,31 @@ export interface DedupeResult {
   removed: number
 }
 
-/** 同平台 + 同日期 + 同金额 分桶，桶内描述相似度 > 0.9 的只保留一条。 */
+/**
+ * 去重：优先按「交易单号」——同号即同一笔交易，直接判重（反复导入同一份账单也安全）。
+ * 没有交易单号的记录回退到老策略：同平台 + 同日期 + 同金额 分桶，桶内描述相似度 > 0.9 视为重复。
+ */
 export function dedupe(records: RawRecord[]): DedupeResult {
+  const seenTxn = new Set<string>()
   const buckets = new Map<string, RawRecord[]>()
+  const kept: RawRecord[] = []
   let removed = 0
+
   for (const rec of records) {
+    if (rec.transactionNo) {
+      if (seenTxn.has(rec.transactionNo)) { removed++; continue }
+      seenTxn.add(rec.transactionNo)
+      kept.push(rec)
+      continue
+    }
     const key = `${rec.platform}|${rec.date}|${rec.amount.toFixed(2)}`
     const bucket = buckets.get(key)
-    if (!bucket) { buckets.set(key, [rec]); continue }
+    if (!bucket) { buckets.set(key, [rec]); kept.push(rec); continue }
     const dup = bucket.some((b) => similarity(b.description, rec.description) > 0.9)
     if (dup) { removed++; continue }
     bucket.push(rec)
+    kept.push(rec)
   }
-  const kept: RawRecord[] = []
-  buckets.forEach((b) => kept.push(...b))
   return { kept, removed }
 }
 

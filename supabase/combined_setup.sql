@@ -163,6 +163,7 @@ CREATE TABLE transactions (
   description           text,
   source                text CHECK (source IN ('screenshot', 'text')),
   image_url             text,
+  review_tag            text CHECK (review_tag IN ('regret', 'worth')),
   wishlist_item_id      uuid REFERENCES wishlist_items (id) ON DELETE SET NULL,
   execution_session_id  uuid REFERENCES execution_sessions (id) ON DELETE SET NULL,
   created_at            timestamptz NOT NULL DEFAULT now()

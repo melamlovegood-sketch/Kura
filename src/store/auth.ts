@@ -27,11 +27,13 @@ interface AuthStore {
   /** Wire up the session: read the persisted one, then track future changes. */
   init: () => void
   signIn: (email: string, password: string) => Promise<AuthResult>
-  /** Step ①: create the account; Supabase emails a 6-digit OTP (Confirm email ON). */
-  signUp: (email: string, password: string) => Promise<AuthResult>
-  /** Step ②: exchange the 6-digit code for a live session (auto sign-in). */
-  verifyOtp: (email: string, token: string) => Promise<AuthResult>
-  /** Resend the signup confirmation email containing a fresh OTP. */
+  /** Step ①: email a 6-digit OTP via signInWithOtp (registers the address if new).
+   *  Passwordless — the chosen password is applied later, in verifyOtp. */
+  sendOtp: (email: string) => Promise<AuthResult>
+  /** Step ②: exchange the 6-digit code for a live session (auto sign-in), then set
+   *  the password on the account so future password 登录 keeps working. */
+  verifyOtp: (email: string, token: string, password?: string) => Promise<AuthResult>
+  /** Resend a fresh OTP — just calls signInWithOtp again. */
   resendOtp: (email: string) => Promise<AuthResult>
   signOut: () => Promise<void>
   /** Enter 本地游客模式 from the Login screen — no account, data stays local. */
@@ -107,32 +109,41 @@ export const useAuthStore = create<AuthStore>((set) => ({
     return { error: mapAuthError(error.message) }
   },
 
-  signUp: async (email, password) => {
-    const { error } = await supabase.auth.signUp({
+  sendOtp: async (email) => {
+    // signInWithOtp emails a 6-digit code (Magic Link template) and, with
+    // shouldCreateUser, registers the address on first use. It's passwordless —
+    // there's no live session yet, so the user must enter the OTP next. Note that
+    // anti-enumeration means an already-registered email no longer errors here; it
+    // simply receives a login code (and signs in once verified).
+    const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      password,
+      options: { shouldCreateUser: true },
     })
-    if (error) return { error: mapAuthError(error.message) }
-    // Confirm email is ON: no session yet. Supabase has emailed a 6-digit OTP;
-    // the UI moves to the verifying step and calls verifyOtp next.
-    return { error: null }
+    return { error: error ? mapAuthError(error.message) : null }
   },
 
-  verifyOtp: async (email, token) => {
+  verifyOtp: async (email, token, password) => {
     const { error } = await supabase.auth.verifyOtp({
       email: email.trim(),
       token: token.trim(),
-      type: 'signup',
+      type: 'email',
     })
     if (error) return { error: mapAuthError(error.message) }
-    // Success → onAuthStateChange returns a session and flips status → authed.
+    // Verified → there's now a live session (onAuthStateChange flips to authed).
+    // signInWithOtp never set a password, so persist the one chosen at signup here
+    // to keep password 登录 working. Non-fatal if it fails: the user is already
+    // signed in and can reset their password later.
+    if (password) {
+      await supabase.auth.updateUser({ password })
+    }
     return { error: null }
   },
 
   resendOtp: async (email) => {
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
+    // Re-send a fresh OTP down the same passwordless path.
+    const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
+      options: { shouldCreateUser: true },
     })
     return { error: error ? mapAuthError(error.message) : null }
   },

@@ -91,6 +91,7 @@ const FIELD_DEFAULTS: Record<string, Row> = {
   },
   review_tasks: { transaction_id: null, brand: null, category: null, status: 'pending' },
   review_results: { usage_note: null },
+  transactions: { review_tag: null },
   monthly_budgets: { total_income: null, note: null, ai_suggested: false },
 }
 

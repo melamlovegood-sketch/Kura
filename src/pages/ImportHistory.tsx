@@ -11,8 +11,8 @@ import { CATEGORY_META } from '@/lib/categories'
 import { cn, formatAmount } from '@/lib/utils'
 import {
   decodeCsvFile,
-  detectPlatform,
   parseBillCsv,
+  parseWechatXlsx,
   dedupe,
   withinSixMonths,
   type Platform,
@@ -46,8 +46,6 @@ export function ImportHistory() {
   const adapter = useSettingsStore((s) => s.adapter)
 
   const [step, setStep] = useState<1 | 2 | 3>(1)
-  const [wechat, setWechat] = useState(true)
-  const [alipay, setAlipay] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0, label: '准备解析…' })
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
@@ -57,9 +55,7 @@ export function ImportHistory() {
   const [importedCount, setImportedCount] = useState<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const selected = ([wechat && 'wechat', alipay && 'alipay'].filter(Boolean) as Platform[])
-
-  async function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | null, platform: Platform) {
     if (!files || files.length === 0) return
     setError(null)
     setStep(2)
@@ -75,22 +71,26 @@ export function ImportHistory() {
     abortRef.current = ctrl
 
     try {
-      const forced = selected.length === 1 ? selected[0] : null
       let total = 0
       let skipped = 0
       const all: RawRecord[] = []
 
       for (const file of Array.from(files)) {
-        const content = await decodeCsvFile(file)
-        const platform = detectPlatform(content) ?? forced
-        const res = parseBillCsv(content, platform)
+        const res =
+          platform === 'wechat'
+            ? await parseWechatXlsx(file)
+            : parseBillCsv(await decodeCsvFile(file), 'alipay')
         total += res.total
         skipped += res.skipped
         all.push(...res.records)
       }
 
       if (all.length === 0) {
-        setError('没能从文件里识别出消费记录。请确认上传的是微信/支付宝导出的 CSV 账单文件。')
+        setError(
+          platform === 'wechat'
+            ? '没能从文件里识别出消费记录。请确认上传的是微信导出的 .xlsx 账单文件。'
+            : '没能从文件里识别出消费记录。请确认上传的是支付宝导出的 .csv 账单文件。',
+        )
         return
       }
 
@@ -192,15 +192,7 @@ export function ImportHistory() {
     <Shell onBack={() => (step === 1 ? navigate('/billing') : setStep(1))}>
       <StepBar step={step} />
 
-      {step === 1 && (
-        <StepSelect
-          wechat={wechat}
-          alipay={alipay}
-          onToggleWechat={() => setWechat((v) => !v)}
-          onToggleAlipay={() => setAlipay((v) => !v)}
-          onFiles={handleFiles}
-        />
-      )}
+      {step === 1 && <StepSelect onFiles={handleFiles} />}
 
       {step === 2 && <StepParsing progress={progress} error={error} onRetry={() => setStep(1)} />}
 
@@ -270,83 +262,80 @@ function StepBar({ step }: { step: 1 | 2 | 3 }) {
 
 /* ── 步骤1：选平台 + 上传 ────────────────────────────────────────────────────── */
 
-const WECHAT_GUIDE = ['微信 →「我」→「支付」→ 右上角「…」', '「账单」→ 右上角「…」→「下载账单」', '选时间范围 → 发送到手机邮箱，拿到 CSV']
-const ALIPAY_GUIDE = ['支付宝 → 首页搜索「账单」', '右上角「…」→「下载账单」', '选时间范围 → 发邮箱或直接下载 CSV']
+const WECHAT_GUIDE = ['微信 →「我」→「支付」→ 右上角「…」', '「账单」→ 右上角「…」→「下载账单」', '选时间范围 → 发送到手机邮箱，拿到 .xlsx']
+const ALIPAY_GUIDE = ['支付宝 → 首页搜索「账单」', '右上角「…」→「下载账单」', '选时间范围 → 发邮箱或直接下载 .csv']
 
-function StepSelect({
-  wechat,
-  alipay,
-  onToggleWechat,
-  onToggleAlipay,
-  onFiles,
+function StepSelect({ onFiles }: { onFiles: (files: FileList | null, platform: Platform) => void }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <UploadTile
+        emoji="💚"
+        title="微信账单 .xlsx"
+        hint="微信支付导出的 Excel 账单文件"
+        accept=".xlsx"
+        guide={{ title: '微信导出教程', steps: WECHAT_GUIDE }}
+        onPick={(files) => onFiles(files, 'wechat')}
+      />
+      <UploadTile
+        emoji="💙"
+        title="支付宝账单 .csv"
+        hint="支付宝导出的 CSV 账单文件"
+        accept=".csv"
+        guide={{ title: '支付宝导出教程', steps: ALIPAY_GUIDE }}
+        onPick={(files) => onFiles(files, 'alipay')}
+      />
+    </div>
+  )
+}
+
+function UploadTile({
+  emoji,
+  title,
+  hint,
+  accept,
+  guide,
+  onPick,
 }: {
-  wechat: boolean
-  alipay: boolean
-  onToggleWechat: () => void
-  onToggleAlipay: () => void
-  onFiles: (files: FileList | null) => void
+  emoji: string
+  title: string
+  hint: string
+  accept: string
+  guide: { title: string; steps: string[] }
+  onPick: (files: FileList | null) => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [drag, setDrag] = useState(false)
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="flex flex-col gap-3">
-        <p className="text-[13px] font-medium text-ink-2">选择平台（可同时选中）</p>
-        <div className="flex gap-2">
-          <PlatformCheck label="💚 微信支付" checked={wechat} onClick={onToggleWechat} />
-          <PlatformCheck label="💙 支付宝" checked={alipay} onClick={onToggleAlipay} />
-        </div>
-
-        {wechat && <Guide title="微信导出教程" steps={WECHAT_GUIDE} />}
-        {alipay && <Guide title="支付宝导出教程" steps={ALIPAY_GUIDE} />}
-      </Card>
-
-      <Card
-        className={cn('flex flex-col items-center gap-2 border-dashed py-8 text-center transition-colors', drag && 'bg-card-alt')}
+    <Card className="flex flex-col gap-3">
+      <div
+        className={cn(
+          'flex cursor-pointer flex-col items-center gap-2 rounded-xl border-dashed border-theme py-7 text-center transition-colors',
+          drag && 'bg-card-alt',
+        )}
         onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
         onDragLeave={() => setDrag(false)}
-        onDrop={(e) => { e.preventDefault(); setDrag(false); onFiles(e.dataTransfer.files) }}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); onPick(e.dataTransfer.files) }}
         onClick={() => fileRef.current?.click()}
         role="button"
       >
-        <Upload size={24} className="text-ink-4" />
-        <p className="text-[14px] text-ink-2">点击或拖拽上传 CSV 账单</p>
-        <p className="max-w-[280px] text-[12px] leading-relaxed text-ink-4">
-          同时选中两个平台可一次上传两个文件，系统自动识别来源并去重
-        </p>
+        <span className="text-3xl">{emoji}</span>
+        <p className="text-[15px] font-medium text-ink-2">{title}</p>
+        <p className="max-w-[280px] text-[12px] leading-relaxed text-ink-4">{hint}</p>
+        <span className="mt-1 flex items-center gap-1.5 rounded-lg bg-card-alt px-3 py-1.5 text-[12px] text-ink-3">
+          <Upload size={13} /> 点击或拖拽上传
+        </span>
         <input
           ref={fileRef}
           type="file"
-          accept=".csv"
+          accept={accept}
           multiple
           className="hidden"
-          onChange={(e) => { onFiles(e.target.files); e.target.value = '' }}
+          onChange={(e) => { onPick(e.target.files); e.target.value = '' }}
         />
-      </Card>
-    </div>
-  )
-}
-
-function PlatformCheck({ label, checked, onClick }: { label: string; checked: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'flex flex-1 items-center justify-center gap-1.5 rounded-xl border-theme py-2.5 text-[14px] transition-colors',
-        checked ? 'bg-[#3D2B1F] text-white' : 'text-ink-3 hover:bg-card-alt',
-      )}
-    >
-      <span
-        className={cn(
-          'flex h-4 w-4 items-center justify-center rounded border',
-          checked ? 'border-white bg-white/20' : 'border-[var(--border)]',
-        )}
-      >
-        {checked && <Check size={11} />}
-      </span>
-      {label}
-    </button>
+      </div>
+      <Guide title={guide.title} steps={guide.steps} />
+    </Card>
   )
 }
 

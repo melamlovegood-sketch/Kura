@@ -22,7 +22,7 @@ const RESEND_COOLDOWN = 60 // seconds
  */
 export function Login() {
   const signIn        = useAuthStore((s) => s.signIn)
-  const signUp        = useAuthStore((s) => s.signUp)
+  const sendOtp       = useAuthStore((s) => s.sendOtp)
   const verifyOtp     = useAuthStore((s) => s.verifyOtp)
   const resendOtp     = useAuthStore((s) => s.resendOtp)
   const enterGuest    = useAuthStore((s) => s.enterGuestMode)
@@ -71,11 +71,13 @@ export function Login() {
         // Success → onAuthStateChange takes over and unmounts this screen.
         return
       }
-      // Sign-up step ①: create account, Supabase emails the OTP.
-      const res = await signUp(e, password)
+      // Sign-up step ①: email a 6-digit OTP (registers the address if new). This is
+      // passwordless, so there's never a session yet — always go to the verify step,
+      // where the typed password gets applied to the account after the code checks out.
+      const res = await sendOtp(e)
       if (res.error) { setError(res.error); return }
       setPhase('verifying')
-      setNotice('验证码已发送，请查收邮件')
+      setNotice('验证码已发送，请查收邮件后输入验证码')
       setCooldown(RESEND_COOLDOWN)
     } finally {
       setBusy(false)
@@ -89,7 +91,7 @@ export function Login() {
 
     setBusy(true); setError(null); setNotice(null)
     try {
-      const res = await verifyOtp(email.trim(), c)
+      const res = await verifyOtp(email.trim(), c, password)
       if (res.error) setError(res.error)
       // Success → onAuthStateChange takes over and unmounts this screen.
     } finally {

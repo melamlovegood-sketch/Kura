@@ -6,10 +6,10 @@ import { AchievementToast } from '@/components/achievements/AchievementToast'
 
 const NAV_ITEMS = [
   { to: '/',          Icon: Home,        label: '主页' },
+  { to: '/billing',   Icon: Wallet,      label: '账单' },
   { to: '/wishlist',  Icon: ListTodo,    label: '清单' },
   { to: '/execution', Icon: ShoppingBag, label: '执行' },
   { to: '/review',    Icon: BookOpen,    label: '复盘' },
-  { to: '/billing',   Icon: Wallet,      label: '账单' },
 ] as const
 
 export function AppLayout({ children }: { children: ReactNode }) {
