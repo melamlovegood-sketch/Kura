@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { db } from '@/lib/db'
 import { getCurrentUserId } from '@/lib/auth'
+import { useWishPoolStore } from '@/store/wishpool'
 import type { ParsedWishlistItem, WishlistItem } from '@/types/db'
 
 interface WishlistStore {
@@ -128,6 +129,10 @@ export const useWishlistStore = create<WishlistStore>()(persist((set, get) => ({
   },
 
   dismiss: async (id) => {
+    // Drop the linked 许愿池 first: its focus_item_id points at this item, and the
+    // active-pool view only filters on is_focus — so without this the home wish-pool
+    // card keeps showing a goal for a 待购 item the user just deleted (bug2).
+    await useWishPoolStore.getState().removePoolForItem(id)
     await db.from('wishlist_items').update({ status: 'dismissed' }).eq('id', id)
     set({ items: get().items.filter((i) => i.id !== id) })
   },

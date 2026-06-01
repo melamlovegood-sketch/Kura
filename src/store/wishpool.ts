@@ -31,6 +31,10 @@ interface WishPoolStore {
   clearMilestone: () => void
   /** Clear a goal-reached pool once the user acts on the buy guidance. */
   dismissCompleted: () => void
+  /** Permanently delete a wish pool (savings included) and unpin its focus item. */
+  deletePool: (poolId: string, focusItemId: string) => Promise<void>
+  /** Remove any wish pool tied to a wishlist item — used when that item is deleted. */
+  removePoolForItem: (itemId: string) => Promise<void>
 }
 
 const isReached = (p: WishPoolData | null): boolean =>
@@ -80,6 +84,22 @@ export const useWishPoolStore = create<WishPoolStore>()(persist((set, get) => ({
     set((s) => ({ pendingSavings: [...s.pendingSavings, { amount, description }] })),
 
   dismissCompleted: () => set({ pool: null }),
+
+  deletePool: async (poolId, focusItemId) => {
+    // savings_records cascade in Postgres (ON DELETE CASCADE), but the guest-mode
+    // shim has no FKs — delete them explicitly so both backends end up clean.
+    await db.from('savings_records').delete().eq('wish_pool_id', poolId)
+    await db.from('wish_pools').delete().eq('id', poolId)
+    // Unpin the focus item so a stale is_focus flag can't resurrect the pool view.
+    if (focusItemId) await db.from('wishlist_items').update({ is_focus: false }).eq('id', focusItemId)
+    if (get().pool?.id === poolId) set({ pool: null })
+  },
+
+  removePoolForItem: async (itemId) => {
+    const { data } = await db.from('wish_pools').select('id').eq('focus_item_id', itemId)
+    const pools = (data as { id: string }[] | null) ?? []
+    for (const p of pools) await get().deletePool(p.id, itemId)
+  },
 
   addSavings: async (amount, description) => {
     const pool = get().pool

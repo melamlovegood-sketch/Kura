@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ArrowUpRight } from 'lucide-react'
+import { ChevronDown, ArrowUpRight, Trash2 } from 'lucide-react'
 import { CardAlt, CardHeader, CardTitle } from '@/components/ui/card'
 import { ShareCardSheet } from '@/components/share/ShareCardSheet'
 import { WishPoolShareCard } from '@/components/share/WishPoolShareCard'
@@ -33,9 +33,23 @@ export function WishPoolCard() {
 }
 
 function ActivePoolCard({ pool }: { pool: WishPoolData }) {
+  const deletePool = useWishPoolStore((s) => s.deletePool)
   const pct       = pool.target_amount > 0 ? Math.min((pool.saved_amount / pool.target_amount) * 100, 100) : 0
   const completed = pool.saved_amount >= pool.target_amount
   const animSaved = useCountUp(pool.saved_amount)
+
+  // 删除许愿池：点垃圾桶 → 行内「确认删除？」→ 连带删掉攒进来的每一笔 (bug3)。
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await deletePool(pool.id, pool.focus_item_id)
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
 
   const prevSaved = useRef(pool.saved_amount)
   const [pulse, setPulse] = useState(false)
@@ -92,8 +106,37 @@ function ActivePoolCard({ pool }: { pool: WishPoolData }) {
           >
             <ArrowUpRight size={14} /> 分享进度
           </button>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            aria-label="删除许愿池"
+            className="text-ink-4 transition-colors hover:text-red-500"
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
       </CardHeader>
+
+      {confirmDelete && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-card-alt px-3 py-2.5">
+          <span className="text-[13px] text-ink-2">确认删除？攒进来的记录会一并清空</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleting}
+              className="text-[13px] text-ink-4 transition-colors hover:text-ink-3 disabled:opacity-40"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+              className="text-[13px] font-medium text-red-500 transition-colors hover:text-red-600 disabled:opacity-40"
+            >
+              {deleting ? '删除中…' : '删除'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
