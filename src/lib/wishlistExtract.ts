@@ -1,4 +1,4 @@
-import { fileToBase64 } from '@/lib/utils'
+import { analyzeImage, strOrNull, numOrNull } from '@/lib/analyzeImage'
 
 /**
  * Fields the vision model pulls out of a product screenshot for the 待购详情页
@@ -22,60 +22,36 @@ export interface ExtractedWishlistFields {
   is_product_photo: boolean
 }
 
-function strOrNull(v: unknown): string | null {
-  if (typeof v !== 'string') return null
-  const t = v.trim()
-  return t && t.toLowerCase() !== 'null' ? t : null
-}
-
-function numOrNull(v: unknown): number | null {
-  const n = typeof v === 'number' ? v : Number(v)
-  return Number.isFinite(n) && n > 0 ? n : null
-}
-
 /**
  * Send a screenshot to the Qwen vision model through our Cloudflare Pages Function
- * (functions/api/analyze-image.ts) and parse the extracted product fields. The
- * function proxies dashscope server-side (so it works in mainland China) using the
- * user's own API key, which we pass in the request body. Throws if the model
- * output can't be parsed.
+ * (/api/analyze-image) and parse the extracted product fields. The function
+ * proxies dashscope server-side (so it works in mainland China) using the user's
+ * own API key, passed in the request body. Throws a friendly error when the model
+ * can't return usable fields.
  */
 export async function extractWishlistFields(
   apiKey: string,
   file: File,
   signal?: AbortSignal,
 ): Promise<ExtractedWishlistFields> {
-  // The function expects bare base64 + mimeType; fileToBase64 returns a full
-  // data URI (data:<mime>;base64,<data>), so strip the prefix.
-  const dataUri = await fileToBase64(file)
-  const base64 = dataUri.split(',')[1] ?? ''
-
-  const res = await fetch('/api/analyze-image', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base64, mimeType: file.type, apiKey }),
-    signal,
-  })
-
-  const data = (await res.json()) as
-    | { ok: true; fields: Record<string, unknown> }
-    | { ok: false; raw?: string; error?: string }
-
-  if (!data.ok) {
-    console.warn('[extractWishlistFields] analyze-image failed:', data)
+  let fields: Record<string, unknown>
+  try {
+    fields = await analyzeImage(file, apiKey, signal)
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    console.warn('[extractWishlistFields] analyze-image failed:', e)
     throw new Error('AI 没能识别出商品信息，换张更清晰的截图试试')
   }
 
-  const parsed = data.fields
   return {
-    name: strOrNull(parsed.name),
-    brand: strOrNull(parsed.brand),
-    price: numOrNull(parsed.price),
-    category: strOrNull(parsed.category),
-    fabric: strOrNull(parsed.fabric),
-    color: strOrNull(parsed.color),
-    size: strOrNull(parsed.size),
-    channel: strOrNull(parsed.channel),
-    is_product_photo: parsed.is_product_photo === true,
+    name: strOrNull(fields.name),
+    brand: strOrNull(fields.brand),
+    price: numOrNull(fields.price),
+    category: strOrNull(fields.category),
+    fabric: strOrNull(fields.fabric),
+    color: strOrNull(fields.color),
+    size: strOrNull(fields.size),
+    channel: strOrNull(fields.channel),
+    is_product_photo: fields.is_product_photo === true,
   }
 }

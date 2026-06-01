@@ -10,6 +10,7 @@ import { useWishPoolStore } from '@/store/wishpool'
 import { usePriceTrackStore } from '@/store/priceTrack'
 import { useAchievementsStore } from '@/store/achievements'
 import { parseProduct, type ParsedProduct } from '@/lib/parseProduct'
+import { analyzeImage, strOrNull, numOrNull } from '@/lib/analyzeImage'
 import { uploadWishlistImage } from '@/lib/wishlistImage'
 import { parsePriceTrack } from '@/lib/parsePriceTrack'
 import { parseBudgetUpdate } from '@/lib/parseBudgetUpdate'
@@ -40,7 +41,9 @@ function budgetCurrentLabel(data: BudgetData | null, scope: CategoryMain): strin
  */
 export function BuyDrawer({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
-  const { adapter } = useSettingsStore()
+  // `adapter` drives the text-only intent router; `aiApiKey` is passed straight to
+  // the /api/analyze-image vision proxy when the input is a screenshot.
+  const { adapter, aiApiKey } = useSettingsStore()
   const principlesStore = usePrinciplesStore()
   const wishlistStore = useWishlistStore()
   const wishPoolStore = useWishPoolStore()
@@ -90,18 +93,30 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
   async function ensureParsed(): Promise<Product | null> {
     if (parsed) return parsed
     if (!hasInput) return null
-    if (!adapter) {
-      setError('请先在设置里填写 API Key')
-      return null
-    }
 
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
     setError(null)
 
-    const principles = principlesStore.items.map((p) => p.content)
-    const product = await parseProduct(adapter, text, image?.base64, ctrl.signal, principles)
+    let product: Product
+    if (image) {
+      // Screenshot → extract the product through the Qwen vision proxy
+      // (/api/analyze-image). Prefer the model's name, fall back to typed text.
+      if (!aiApiKey) { setError('请先在设置里填写 API Key'); return null }
+      const fields = await analyzeImage(image.file, aiApiKey, ctrl.signal)
+      const name = strOrNull(fields.name) ?? text.trim()
+      if (!name.trim()) {
+        throw new Error('没能从截图里识别出商品，换张更清晰的图，或补一句文字描述')
+      }
+      product = { item_name: name, estimated_price: numOrNull(fields.price) }
+    } else {
+      // Text-only → intent router (server-proxied via /api/dashscope).
+      if (!adapter) { setError('请先在设置里填写 API Key'); return null }
+      const principles = principlesStore.items.map((p) => p.content)
+      product = await parseProduct(adapter, text, undefined, ctrl.signal, principles)
+    }
+
     setParsed(product)
     return product
   }
