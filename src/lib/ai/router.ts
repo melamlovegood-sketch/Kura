@@ -1,4 +1,5 @@
 import type { AIAdapter, AIMessage, ContentPart, IntentResult } from './types'
+import { extractJsonObject } from './parseJson'
 
 const BASE_SYSTEM_PROMPT = `你是 Kura 的 AI 助手，帮助用户记录消费决策。
 根据用户的输入（文字或截图），判断意图并返回结构化数据。
@@ -120,15 +121,18 @@ export async function routeIntent(
     signal,
   )
 
+  // Raw model output before parsing — lets us tell "model returned junk" from
+  // "we failed to parse good output" when an intent comes back as unknown.
+  console.debug('[routeIntent] raw response', full || raw)
+
   return parseIntentResult(full || raw)
 }
 
 function parseIntentResult(raw: string): IntentResult {
-  const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```$/m, '').trim()
-
   try {
-    return JSON.parse(cleaned) as IntentResult
+    return extractJsonObject<IntentResult>(raw)
   } catch {
+    console.warn('[routeIntent] could not parse JSON from:', raw)
     return {
       module: 'unknown',
       confidence: 0,

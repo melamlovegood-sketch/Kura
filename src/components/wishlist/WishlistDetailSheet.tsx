@@ -78,6 +78,7 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
       if (fields.name) patch.item_name = fields.name
       if (fields.brand) patch.brand = fields.brand
       if (fields.price != null) patch.estimated_price = fields.price
+      if (fields.category) patch.category = fields.category
       if (fields.fabric) patch.fabric = fields.fabric
       if (fields.color) patch.color = fields.color
       if (fields.size) patch.size = fields.size

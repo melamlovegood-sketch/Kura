@@ -1,4 +1,5 @@
 import type { AIAdapter, AIMessage, ContentPart } from '@/lib/ai/types'
+import { extractJsonObject } from '@/lib/ai/parseJson'
 
 /**
  * Fields the vision model pulls out of a product screenshot for the 待购详情页
@@ -15,6 +16,7 @@ export interface ExtractedWishlistFields {
   name: string | null
   brand: string | null
   price: number | null
+  category: string | null
   fabric: string | null
   color: string | null
   size: string | null
@@ -22,13 +24,14 @@ export interface ExtractedWishlistFields {
   is_product_photo: boolean
 }
 
-const SYSTEM_PROMPT = `你是一个商品信息提取助手。分析用户上传的截图（可能是商品页、吊牌、面料标签等），提取以下字段并以 JSON 格式返回。如果某字段在图中找不到，返回 null。
+const SYSTEM_PROMPT = `你是一个商品信息提取助手。分析用户上传的截图（可能是商品页、购物车截图、小红书截图、吊牌、面料标签等），提取以下字段并以 JSON 格式返回。如果某字段在图中找不到，返回 null。
 
-返回格式（仅 JSON，不要任何其他文字）：
+仅返回 JSON，不要任何其他文字或 markdown 代码块：
 {
   "name": "商品名称",
   "brand": "品牌",
   "price": 数字或null,
+  "category": "分类",
   "fabric": "面料成分，如 90%棉 10%涤纶",
   "color": "颜色",
   "size": "尺码",
@@ -67,21 +70,36 @@ export async function extractWishlistFields(
     { role: 'user', content },
   ]
 
+  // Step 1 — confirm we're actually handing the model image bytes, not an empty
+  // or malformed string. A data URI must look like "data:image/…;base64,…".
+  console.debug('[extractWishlistFields] image', {
+    prefix: imageBase64.slice(0, 100),
+    length: imageBase64.length,
+    looksLikeDataUri: /^data:image\/[^;]+;base64,/.test(imageBase64),
+  })
+
   let raw = ''
   await adapter.streamChat(messages, (delta) => { raw += delta }, signal)
 
-  const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```$/m, '').trim()
+  // Step 2 — the raw model output, before any parsing. If fields come back empty,
+  // this tells us whether the model returned nulls (can't see image) vs. returned
+  // good data we then failed to parse.
+  console.debug('[extractWishlistFields] raw response', raw)
+
   let parsed: Record<string, unknown>
   try {
-    parsed = JSON.parse(cleaned)
+    parsed = extractJsonObject(raw)
   } catch {
+    console.warn('[extractWishlistFields] could not parse JSON from:', raw)
     throw new Error('AI 没能识别出商品信息，换张更清晰的截图试试')
   }
+  console.debug('[extractWishlistFields] parsed', parsed)
 
   return {
     name: strOrNull(parsed.name),
     brand: strOrNull(parsed.brand),
     price: numOrNull(parsed.price),
+    category: strOrNull(parsed.category),
     fabric: strOrNull(parsed.fabric),
     color: strOrNull(parsed.color),
     size: strOrNull(parsed.size),
