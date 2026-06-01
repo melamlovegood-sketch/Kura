@@ -31,6 +31,8 @@ interface WishPoolStore {
   clearMilestone: () => void
   /** Clear a goal-reached pool once the user acts on the buy guidance. */
   dismissCompleted: () => void
+  /** Manually mark a pool reached (stamps completed_at) — used by the detail sheet's 已达成. */
+  markReached: (poolId: string) => Promise<void>
   /** Permanently delete a wish pool (savings included) and unpin its focus item. */
   deletePool: (poolId: string, focusItemId: string) => Promise<void>
   /** Remove any wish pool tied to a wishlist item — used when that item is deleted. */
@@ -84,6 +86,16 @@ export const useWishPoolStore = create<WishPoolStore>()(persist((set, get) => ({
     set((s) => ({ pendingSavings: [...s.pendingSavings, { amount, description }] })),
 
   dismissCompleted: () => set({ pool: null }),
+
+  markReached: async (poolId) => {
+    // Stamp completed_at so v_active_wish_pool filters it out, then drop it from
+    // local state — the home card disappears and won't resurrect on reload.
+    await db
+      .from('wish_pools')
+      .update({ completed_at: new Date().toISOString() })
+      .eq('id', poolId)
+    if (get().pool?.id === poolId) set({ pool: null })
+  },
 
   deletePool: async (poolId, focusItemId) => {
     // savings_records cascade in Postgres (ON DELETE CASCADE), but the guest-mode
