@@ -158,7 +158,9 @@ export function ImportHistory() {
         category: d.category,
         category_main: d.category_main,
         date: d.date,
-        source: 'import',
+        // transactions_source_check 只允许 'screenshot' / 'text'，用 'text' 兼容现有约束
+        // （批量导入的记录视作「文字录入」，不引入需要迁移才支持的 'import' 取值）。
+        source: 'text',
         expiry_date: null,
         user_id: userId,
       }))
