@@ -6,7 +6,7 @@
 --
 -- 合并顺序：
 --   1) BASE SCHEMA           = supabase/schema.sql       （建表/枚举/视图/种子）
---   2) MIGRATION 0001..0015  = supabase/migrations/*.sql （按文件名顺序）
+--   2) MIGRATION 0001..0018  = supabase/migrations/*.sql （按文件名顺序）
 --
 --   为什么要先拼 schema.sql：migrations 的 0001 起手就是 ALTER TABLE user_settings，
 --   依赖 base schema 已经把表建好；只跑 migrations 会在空库上直接报错。
@@ -980,4 +980,20 @@ create unique index if not exists transactions_import_dedup_idx
 alter table transactions drop constraint if exists transactions_source_check;
 alter table transactions add constraint transactions_source_check
   check (source in ('screenshot', 'text', 'import'));
+
+
+-- ████████████████████████████████████████████████████████████████████████████
+-- ██  MIGRATION  —  0018_import_dedup_constraint.sql
+-- ████████████████████████████████████████████████████████████████████████████
+
+-- 把导入去重的唯一性从「unique 索引」升级为「具名 UNIQUE 约束」，对应
+-- upsert(onConflict 'user_id,date,amount,description')。修复老库报错：
+--   there is no unique or exclusion constraint matching the ON CONFLICT specification
+-- IDEMPOTENT — 可重复执行。
+
+drop index if exists transactions_import_dedup_idx;
+
+alter table transactions drop constraint if exists transactions_import_dedup_key;
+alter table transactions add constraint transactions_import_dedup_key
+  unique (user_id, date, amount, description);
 
