@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { CostLabels } from '@/components/cost/CostLabels'
 import { WorthItCard } from '@/components/wishlist/WorthItCard'
 import { WishlistDetailSheet } from '@/components/wishlist/WishlistDetailSheet'
+import { PriceTrackDetailSheet } from '@/components/wishlist/PriceTrackDetailSheet'
 import type { ImpulseRecord, PricePlatform, PriceRecord, PriceTrack, WishlistItem } from '@/types/db'
 
 const SEASON_LABEL: Record<string, string> = {
@@ -36,6 +37,8 @@ export function Wishlist() {
   const [tab, setTab] = useState<Tab>(initialTab)
   // 待购详情：点列表项打开底部 sheet。
   const [detailId, setDetailId] = useState<string | null>(null)
+  // 蹲蹲详情：点蹲蹲项打开底部 sheet。
+  const [trackDetailId, setTrackDetailId] = useState<string | null>(null)
 
   const activeItems    = wishlistStore.items.filter((i) => i.status === 'active')
   const pendingImpulse = impulseStore.items.filter((i) => i.status === 'pending')
@@ -107,6 +110,7 @@ export function Wishlist() {
                 }}
                 onDismiss={() => priceTrackStore.dismiss(track.id)}
                 onSetTarget={(target) => priceTrackStore.setTargetPrice(track.id, target)}
+                onOpen={() => setTrackDetailId(track.id)}
               />
             ))
           )}
@@ -114,6 +118,7 @@ export function Wishlist() {
       )}
 
       {detailId && <WishlistDetailSheet itemId={detailId} onClose={() => setDetailId(null)} />}
+      {trackDetailId && <PriceTrackDetailSheet trackId={trackDetailId} onClose={() => setTrackDetailId(null)} />}
     </div>
   )
 }
@@ -270,12 +275,13 @@ function getRemainingTime(expiresAt: string): string {
  * (only with ≥2 data points), the textual price history, and the net change vs
  * the first recorded price. Two actions: 加入清单 / 不蹲了.
  */
-function TrackCard({ track, records, onAddToWishlist, onDismiss, onSetTarget }: {
+function TrackCard({ track, records, onAddToWishlist, onDismiss, onSetTarget, onOpen }: {
   track: PriceTrack
   records: PriceRecord[]
   onAddToWishlist: () => Promise<void>
   onDismiss: () => void
   onSetTarget: (target: number | null) => Promise<void>
+  onOpen: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [target, setTarget] = useState<string>(track.target_price != null ? String(track.target_price) : '')
@@ -303,12 +309,29 @@ function TrackCard({ track, records, onAddToWishlist, onDismiss, onSetTarget }: 
     <Card>
       <CardContent className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-[15px] font-medium text-ink leading-snug">{track.item_name}</p>
+          <div
+            className="flex min-w-0 flex-1 items-start gap-2.5 cursor-pointer"
+            role="button"
+            tabIndex={0}
+            onClick={onOpen}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+          >
+            {track.image_url && (
+              <img
+                src={track.image_url}
+                alt=""
+                className="h-12 w-12 shrink-0 rounded-lg bg-card-alt object-cover"
+              />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-medium text-ink leading-snug">{track.item_name}</p>
+              <p className="mt-0.5 text-[12px] text-ink-4">{days === 0 ? '今天开始蹲' : `已蹲 ${days} 天`}</p>
+            </div>
+          </div>
           <span className="shrink-0 rounded border-theme px-1.5 py-0.5 text-[11px] text-ink-4">
             {PLATFORM_LABEL[track.platform] ?? '其他'}
           </span>
         </div>
-        <p className="-mt-1.5 text-[12px] text-ink-4">{days === 0 ? '今天开始蹲' : `已蹲 ${days} 天`}</p>
 
         {records.length >= 2 && (
           <div className="h-32 w-full">

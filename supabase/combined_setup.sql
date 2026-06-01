@@ -201,7 +201,10 @@ CREATE TABLE price_tracks (
   source_url       text,
   platform         price_platform NOT NULL,
   last_checked_at  timestamptz,
-  created_at       timestamptz NOT NULL DEFAULT now()
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  -- 蹲蹲详情页（迁移 0020）：主图 + 品牌，复用待购的截图上传 + AI 填写流程。
+  image_url        text,
+  brand            text
 );
 
 -- ─── price_records ────────────────────────────────────────────────────────────
@@ -1057,4 +1060,27 @@ CREATE POLICY "wishlist_images_delete_own" ON storage.objects
     bucket_id = 'wishlist-images'
     AND (storage.foldername(name))[1] = auth.uid()::text
   );
+
+
+-- ████████████████████████████████████████████████████████████████████████████
+-- ██  MIGRATION  —  0020_price_track_detail.sql
+-- ████████████████████████████████████████████████████████████████████████████
+
+-- Migration: 蹲蹲详情页 — price_tracks 扩展字段（主图 + 品牌 + 目标价兜底）。
+--
+-- WHAT THIS DOES
+--   蹲蹲详情 sheet 复用待购的截图上传 + AI 填写流程，因此 price_tracks 也要能存
+--   主图(image_url)和品牌(brand)。target_price 早已存在；这里 ADD COLUMN IF NOT
+--   EXISTS 兜底，保持自包含可重复执行。主图复用 wishlist-images bucket（0019），
+--   路径 wishlist-images/{user_id}/{track_id}/{timestamp}.jpg —— RLS 只校验第一段
+--   = uid，track_id 作目录段同样合法，无需新建 bucket。
+--
+--   AI 截图解析对蹲蹲只回填 name / brand / image_url —— 价格手动追踪，AI 绝不改价。
+--
+-- IDEMPOTENT — 可在 Supabase Dashboard → SQL Editor 重复执行。
+
+ALTER TABLE price_tracks
+  ADD COLUMN IF NOT EXISTS target_price numeric(10,2),
+  ADD COLUMN IF NOT EXISTS image_url    text,
+  ADD COLUMN IF NOT EXISTS brand        text;
 

@@ -30,6 +30,14 @@ interface PriceTrackStore {
   add: (item_name: string, price: number, platform: PricePlatform) => Promise<PriceTrack | null>
   /** Append a new price point to an existing track. */
   addPriceRecord: (track_id: string, price: number, platform: PricePlatform) => Promise<void>
+  /**
+   * 编辑蹲蹲的基本信息（名称 / 品牌 / 主图）。价格不走这里——它由 addPriceRecord
+   * 单独追踪并留下历史记录，所以这个 patch 故意只允许非价格字段。
+   */
+  update: (
+    track_id: string,
+    patch: Partial<Pick<PriceTrack, 'item_name' | 'brand' | 'image_url'>>,
+  ) => Promise<void>
   /** AI-judge whether item_name is the same product as an already-tracked one. */
   findSimilar: (adapter: AIAdapter | null, item_name: string) => Promise<PriceTrack | null>
   /**
@@ -150,6 +158,14 @@ export const usePriceTrackStore = create<PriceTrackStore>()(persist((set, get) =
         ...get().records,
         [track_id]: [...(get().records[track_id] ?? []), rec as PriceRecord],
       },
+    })
+  },
+
+  update: async (track_id, patch) => {
+    const { error } = await db.from('price_tracks').update(patch).eq('id', track_id)
+    if (error) throw new Error(error.message || '保存失败')
+    set({
+      tracks: get().tracks.map((t) => (t.id === track_id ? { ...t, ...patch } : t)),
     })
   },
 

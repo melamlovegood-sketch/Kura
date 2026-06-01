@@ -145,6 +145,9 @@ export interface PriceTrack {
   platform: PricePlatform
   last_checked_at: string | null
   created_at: string
+  // 蹲蹲详情页字段（迁移 0020）：主图 + 品牌，复用待购的截图上传 + AI 填写。
+  image_url: string | null
+  brand: string | null
 }
 
 export interface PriceRecord {

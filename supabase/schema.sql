@@ -174,7 +174,10 @@ CREATE TABLE price_tracks (
   source_url       text,
   platform         price_platform NOT NULL,
   last_checked_at  timestamptz,
-  created_at       timestamptz NOT NULL DEFAULT now()
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  -- 蹲蹲详情页（迁移 0020）：主图 + 品牌，复用待购的截图上传 + AI 填写流程。
+  image_url        text,
+  brand            text
 );
 
 -- ─── price_records ────────────────────────────────────────────────────────────
