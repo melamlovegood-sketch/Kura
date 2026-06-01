@@ -16,7 +16,7 @@ import { parsePriceTrack } from '@/lib/parsePriceTrack'
 import { parseBudgetUpdate } from '@/lib/parseBudgetUpdate'
 import { useBudgetStore } from '@/store/budget'
 import { fileToBase64, formatAmount } from '@/lib/utils'
-import type { BudgetData, CategoryMain, ParsedBudgetUpdate } from '@/types/db'
+import type { BudgetData, CategoryMain, ParsedBudgetUpdate, WishlistItem } from '@/types/db'
 
 type Product = ParsedProduct
 type Exit = 'impulse' | 'wishlist' | 'buy' | 'track' | 'budget'
@@ -65,6 +65,9 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
   const [budgetDraft, setBudgetDraft] = useState<ParsedBudgetUpdate | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Full field set from the last screenshot parse, so 加进清单 can persist brand /
+  // fabric / color / size / channel (not just item_name + price). null for text input.
+  const imageFieldsRef = useRef<Record<string, unknown> | null>(null)
 
   const hasInput = !!text.trim() || !!image
 
@@ -106,6 +109,7 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
       if (!aiApiKey) { setError('请先在设置里填写 API Key'); return null }
       const fields = await analyzeImage(image.file, aiApiKey, ctrl.signal)
       console.log('AI fields:', JSON.stringify(fields))
+      imageFieldsRef.current = fields
       const name = strOrNull(fields.name) ?? text.trim()
       if (!name.trim()) {
         throw new Error('没能从截图里识别出商品，换张更清晰的图，或补一句文字描述')
@@ -114,6 +118,7 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
     } else {
       // Text-only → intent router (server-proxied via /api/dashscope).
       if (!adapter) { setError('请先在设置里填写 API Key'); return null }
+      imageFieldsRef.current = null
       const principles = principlesStore.items.map((p) => p.content)
       product = await parseProduct(adapter, text, undefined, ctrl.signal, principles)
     }
@@ -174,22 +179,37 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
   // 回填 image_url，这样详情页能直接显示（bug1：之前截图只用于解析，从不保存）。
   function handleWishlist() {
     return runExit('wishlist', async (product) => {
+      const f = imageFieldsRef.current
       const created = await wishlistStore.add({
         item_name: product.item_name,
         estimated_price: product.estimated_price,
-        category: null,
+        category: (f && strOrNull(f.category)) || null,
         season_tag: 'year_round',
         need_intensity: null,
         worthiness_score: null,
         worthiness_reason: null,
       })
-      if (created && image) {
-        // Non-fatal: the item already exists; a failed upload just leaves it
-        // without a 主图 rather than blocking the add.
-        try {
-          const url = await uploadWishlistImage(image.file, created.id)
-          await wishlistStore.update(created.id, { image_url: url })
-        } catch { /* ignore — item saved, image optional */ }
+      if (created) {
+        // Persist everything the screenshot gave us — brand/fabric/color/size/
+        // channel + the image as 主图 — so the detail page is pre-filled instead of
+        // showing 未填写 everywhere (bug3). All best-effort: the item is already
+        // saved, so a missing column (migration not yet run) or a failed upload
+        // must not block the add.
+        const patch: Partial<WishlistItem> = {}
+        if (f) {
+          for (const k of ['brand', 'fabric', 'color', 'size', 'channel'] as const) {
+            const val = strOrNull(f[k])
+            if (val) patch[k] = val
+          }
+        }
+        if (image) {
+          try { patch.image_url = await uploadWishlistImage(image.file, created.id) }
+          catch { /* image optional */ }
+        }
+        if (Object.keys(patch).length) {
+          try { await wishlistStore.update(created.id, patch) }
+          catch (e) { console.warn('保存扩展字段失败（可能是数据库缺列，请运行迁移）:', e) }
+        }
       }
       onClose()
     })
