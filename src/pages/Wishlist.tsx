@@ -11,6 +11,7 @@ import { formatAmount } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { CostLabels } from '@/components/cost/CostLabels'
 import { WorthItCard } from '@/components/wishlist/WorthItCard'
+import { WishlistDetailSheet } from '@/components/wishlist/WishlistDetailSheet'
 import type { ImpulseRecord, PricePlatform, PriceRecord, PriceTrack, WishlistItem } from '@/types/db'
 
 const SEASON_LABEL: Record<string, string> = {
@@ -33,6 +34,8 @@ export function Wishlist() {
   // Home's "去看看" on a price-drop card lands here with state.tab = 'track'.
   const initialTab: Tab = (location.state as { tab?: Tab } | null)?.tab === 'track' ? 'track' : 'wishlist'
   const [tab, setTab] = useState<Tab>(initialTab)
+  // 待购详情：点列表项打开底部 sheet。
+  const [detailId, setDetailId] = useState<string | null>(null)
 
   const activeItems    = wishlistStore.items.filter((i) => i.status === 'active')
   const pendingImpulse = impulseStore.items.filter((i) => i.status === 'pending')
@@ -69,6 +72,7 @@ export function Wishlist() {
                   onMoveDown={() => wishlistStore.move(item.id, 'down')}
                   onPin={async () => { await wishlistStore.pin(item); await wishPoolStore.load() }}
                   onDismiss={() => wishlistStore.dismiss(item.id)}
+                  onOpen={() => setDetailId(item.id)}
                 />
               ))
             )}
@@ -108,6 +112,8 @@ export function Wishlist() {
           )}
         </section>
       )}
+
+      {detailId && <WishlistDetailSheet itemId={detailId} onClose={() => setDetailId(null)} />}
     </div>
   )
 }
@@ -126,9 +132,10 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   )
 }
 
-function WishlistItemCard({ item, isPoolFocus, isFirst, isLast, onMoveUp, onMoveDown, onPin, onDismiss }: {
+function WishlistItemCard({ item, isPoolFocus, isFirst, isLast, onMoveUp, onMoveDown, onPin, onDismiss, onOpen }: {
   item: WishlistItem; isPoolFocus: boolean; isFirst: boolean; isLast: boolean
   onMoveUp: () => void; onMoveDown: () => void; onPin: () => Promise<void>; onDismiss: () => void
+  onOpen: () => void
 }) {
   const [pinning, setPinning] = useState(false)
   const [showWorth, setShowWorth] = useState(false)
@@ -144,7 +151,20 @@ function WishlistItemCard({ item, isPoolFocus, isFirst, isLast, onMoveUp, onMove
     <Card className={cn('transition-colors', isPoolFocus && 'bg-amber-50/60 border-amber-200')}>
       <CardContent className="flex flex-col gap-2">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
+          <div
+            className="flex-1 min-w-0 cursor-pointer"
+            role="button"
+            tabIndex={0}
+            onClick={onOpen}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+          >
+            {item.image_url && (
+              <img
+                src={item.image_url}
+                alt=""
+                className="mb-2 h-16 w-16 rounded-lg bg-card-alt object-cover"
+              />
+            )}
             <p className="text-[15px] font-medium text-ink leading-snug">{item.item_name}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {item.estimated_price != null && (

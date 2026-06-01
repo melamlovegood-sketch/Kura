@@ -101,6 +101,14 @@ export interface WishlistItem {
   status: 'active' | 'purchased' | 'dismissed'
   impulse_record_id: string | null
   added_at: string
+  // 详情页字段（迁移 0019）：主图 + 商品属性 + 备注，均可内联编辑 / AI 截图回填。
+  image_url: string | null
+  brand: string | null
+  fabric: string | null
+  color: string | null
+  size: string | null
+  channel: string | null
+  notes: string | null
 }
 
 export interface Subscription {

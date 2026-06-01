@@ -12,6 +12,10 @@ interface WishlistStore {
   add: (data: ParsedWishlistItem, impulseRecordId?: string) => Promise<WishlistItem | null>
   /** Set this item as the wish pool focus, create/reuse wish_pool record */
   pin: (item: WishlistItem) => Promise<void>
+  /** Patch arbitrary editable fields (detail page inline edits + AI fill). */
+  update: (id: string, patch: Partial<WishlistItem>) => Promise<void>
+  /** Mark an item bought → leaves the active list; drops any linked 许愿池. */
+  markPurchased: (id: string) => Promise<void>
   /** Move an item up/down the list; renumbers `priority` to reflect display order. */
   move: (id: string, dir: 'up' | 'down') => Promise<void>
   dismiss: (id: string) => Promise<void>
@@ -99,6 +103,21 @@ export const useWishlistStore = create<WishlistStore>()(persist((set, get) => ({
     set({
       items: get().items.map((i) => ({ ...i, is_focus: i.id === item.id })),
     })
+  },
+
+  update: async (id, patch) => {
+    const { error } = await db.from('wishlist_items').update(patch).eq('id', id)
+    if (error) throw new Error(error.message)
+    set({ items: get().items.map((i) => (i.id === id ? { ...i, ...patch } : i)) })
+  },
+
+  markPurchased: async (id) => {
+    // Same cleanup as dismiss: a 待购 item can be a 许愿池 focus, and the active-pool
+    // view only checks is_focus — so drop the linked pool or the home card keeps
+    // showing a goal for something the user just marked bought.
+    await useWishPoolStore.getState().removePoolForItem(id)
+    await db.from('wishlist_items').update({ status: 'purchased' }).eq('id', id)
+    set({ items: get().items.filter((i) => i.id !== id) })
   },
 
   move: async (id, dir) => {

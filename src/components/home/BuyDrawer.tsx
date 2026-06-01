@@ -10,6 +10,7 @@ import { useWishPoolStore } from '@/store/wishpool'
 import { usePriceTrackStore } from '@/store/priceTrack'
 import { useAchievementsStore } from '@/store/achievements'
 import { parseProduct, type ParsedProduct } from '@/lib/parseProduct'
+import { uploadWishlistImage } from '@/lib/wishlistImage'
 import { parsePriceTrack } from '@/lib/parsePriceTrack'
 import { parseBudgetUpdate } from '@/lib/parseBudgetUpdate'
 import { useBudgetStore } from '@/store/budget'
@@ -153,10 +154,11 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // 加进清单再想想 → 待购清单
+  // 加进清单再想想 → 待购清单。若用户上传了截图，把它作为商品主图存进 Storage 并
+  // 回填 image_url，这样详情页能直接显示（bug1：之前截图只用于解析，从不保存）。
   function handleWishlist() {
     return runExit('wishlist', async (product) => {
-      await wishlistStore.add({
+      const created = await wishlistStore.add({
         item_name: product.item_name,
         estimated_price: product.estimated_price,
         category: null,
@@ -165,6 +167,14 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
         worthiness_score: null,
         worthiness_reason: null,
       })
+      if (created && image) {
+        // Non-fatal: the item already exists; a failed upload just leaves it
+        // without a 主图 rather than blocking the add.
+        try {
+          const url = await uploadWishlistImage(image.file, created.id)
+          await wishlistStore.update(created.id, { image_url: url })
+        } catch { /* ignore — item saved, image optional */ }
+      }
       onClose()
     })
   }

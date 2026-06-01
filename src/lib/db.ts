@@ -80,6 +80,8 @@ const FIELD_DEFAULTS: Record<string, Row> = {
     category: null, estimated_price: null, season_tag: 'year_round', priority: 0,
     need_intensity: null, worthiness_score: null, worthiness_reason: null,
     is_focus: false, last_nudged_at: null, status: 'active', impulse_record_id: null,
+    image_url: null, brand: null, fabric: null, color: null, size: null,
+    channel: null, notes: null,
   },
   impulse_records: { estimated_price: null, season_tag: 'year_round', source: null, status: 'pending' },
   subscriptions: { is_active: true },
