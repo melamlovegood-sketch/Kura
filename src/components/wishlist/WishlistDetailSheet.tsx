@@ -73,6 +73,7 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
     abortRef.current = ctrl
     try {
       const fields = await extractWishlistFields(aiApiKey, file, ctrl.signal)
+      console.log('AI fields:', JSON.stringify(fields))
 
       const patch: Partial<WishlistItem> = {}
       if (fields.name) patch.item_name = fields.name

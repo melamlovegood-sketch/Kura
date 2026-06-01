@@ -19,11 +19,46 @@ const toBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file)
   })
 
+// qwen-vl-plus is inconsistent about the JSON keys it returns: sometimes the
+// English keys we asked for, sometimes the Chinese hints from the prompt template
+// ("商品名称" etc.), sometimes camelCase. When the keys don't match, every field
+// maps to null and the UI shows 未填写 across the board even though the call
+// "succeeded". So we normalize the raw object to canonical English keys via a
+// generous alias table before anyone reads it.
+const FIELD_ALIASES: Record<string, string[]> = {
+  name: ['name', 'title', 'product_name', 'productname', 'item_name', 'itemname', '商品名称', '名称', '品名', '商品名', '商品'],
+  brand: ['brand', '品牌', '牌子'],
+  price: ['price', 'amount', '价格', '价', '售价', '金额', '单价'],
+  category: ['category', 'type', '分类', '品类', '类别', '类目'],
+  fabric: ['fabric', 'material', '面料', '面料成分', '材质', '成分'],
+  color: ['color', 'colour', '颜色', '色'],
+  size: ['size', '尺码', '尺寸', '规格'],
+  channel: ['channel', 'platform', 'source', '渠道', '购买渠道', '平台', '商家', '店铺'],
+  is_product_photo: ['is_product_photo', 'isproductphoto', 'is_main_photo', '是否主图', '是否商品主图', '主图'],
+}
+
+function normalizeProductFields(raw: Record<string, unknown>): Record<string, unknown> {
+  // Case-insensitive lookup of the raw keys (Chinese is unaffected by toLowerCase).
+  const lookup = new Map<string, unknown>()
+  for (const [k, v] of Object.entries(raw)) lookup.set(k.toLowerCase().trim(), v)
+
+  const out: Record<string, unknown> = {}
+  for (const [canonical, aliases] of Object.entries(FIELD_ALIASES)) {
+    for (const alias of aliases) {
+      const v = lookup.get(alias.toLowerCase())
+      if (v !== undefined) { out[canonical] = v; break }
+    }
+  }
+  out.is_product_photo = toBool(out.is_product_photo)
+  return out
+}
+
 /**
- * Send a screenshot to the vision model and return the raw extracted fields
- * object ({ name, brand, price, category, fabric, color, size, channel,
- * is_product_photo }). Throws on a network failure or when the model output
- * can't be parsed as JSON. Aborts cleanly when the signal fires.
+ * Send a screenshot to the vision model and return the normalized fields object
+ * ({ name, brand, price, category, fabric, color, size, channel,
+ * is_product_photo }) with canonical English keys. Throws on a network failure or
+ * when the model output can't be parsed as JSON. Aborts cleanly when the signal
+ * fires.
  */
 export async function analyzeImage(
   file: File,
@@ -38,10 +73,29 @@ export async function analyzeImage(
     signal,
   })
   const data = (await res.json()) as
-    | { ok: true; fields: Record<string, unknown> }
+    | { ok: true; fields: unknown }
     | { ok: false; raw?: string; error?: string }
-  if (data.ok) return data.fields
-  throw new Error('解析失败: ' + (data.raw ?? data.error ?? ''))
+
+  // Surface the raw server payload so a "succeeded but empty" result is diagnosable.
+  console.log('[analyzeImage] server response:', JSON.stringify(data))
+
+  if (!data.ok) {
+    throw new Error('解析失败: ' + (data.raw ?? data.error ?? ''))
+  }
+
+  // The function returns a parsed object, but guard against a double-encoded
+  // string just in case.
+  let fields = data.fields
+  if (typeof fields === 'string') {
+    try { fields = JSON.parse(fields) } catch { /* leave as-is */ }
+  }
+  if (!fields || typeof fields !== 'object') {
+    throw new Error('解析失败: 返回内容不是对象')
+  }
+
+  const normalized = normalizeProductFields(fields as Record<string, unknown>)
+  console.log('[analyzeImage] normalized fields:', JSON.stringify(normalized))
+  return normalized
 }
 
 /** Trim a value to a non-empty string, treating "null"/empty as null. */
@@ -51,8 +105,21 @@ export function strOrNull(v: unknown): string | null {
   return t && t.toLowerCase() !== 'null' ? t : null
 }
 
-/** Coerce to a positive finite number, else null. */
+/** Coerce to a positive finite number, pulling the number out of e.g. "¥599 元". */
 export function numOrNull(v: unknown): number | null {
-  const n = typeof v === 'number' ? v : Number(v)
-  return Number.isFinite(n) && n > 0 ? n : null
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : null
+  if (typeof v === 'string') {
+    const m = v.replace(/[,，\s]/g, '').match(/\d+(\.\d+)?/)
+    if (m) {
+      const n = Number(m[0])
+      return Number.isFinite(n) && n > 0 ? n : null
+    }
+  }
+  return null
+}
+
+function toBool(v: unknown): boolean {
+  if (v === true || v === 1) return true
+  if (typeof v === 'string') return ['true', 'yes', '是', '1'].includes(v.trim().toLowerCase())
+  return false
 }

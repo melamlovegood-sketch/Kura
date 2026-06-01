@@ -105,6 +105,7 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
       // (/api/analyze-image). Prefer the model's name, fall back to typed text.
       if (!aiApiKey) { setError('请先在设置里填写 API Key'); return null }
       const fields = await analyzeImage(image.file, aiApiKey, ctrl.signal)
+      console.log('AI fields:', JSON.stringify(fields))
       const name = strOrNull(fields.name) ?? text.trim()
       if (!name.trim()) {
         throw new Error('没能从截图里识别出商品，换张更清晰的图，或补一句文字描述')
