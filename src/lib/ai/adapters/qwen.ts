@@ -1,7 +1,12 @@
 import type { AIAdapter, AIMessage } from '../types'
 
-// Qwen uses an OpenAI-compatible endpoint via dashscope
-const BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+// Qwen uses an OpenAI-compatible endpoint via dashscope. We never call dashscope
+// directly from the browser — that fails with ERR_CONNECTION_CLOSED in mainland
+// China — so every request goes through our same-origin serverless proxy
+// (api/dashscope.ts), which forwards it server-side and streams the SSE response
+// back unchanged. The Authorization header is still sent so the proxy can fall
+// back to the user's own key when DASHSCOPE_API_KEY isn't set on the server.
+const PROXY_URL = '/api/dashscope'
 
 export class QwenAdapter implements AIAdapter {
   constructor(
@@ -14,7 +19,7 @@ export class QwenAdapter implements AIAdapter {
     onChunk: (delta: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
-    const res = await fetch(`${BASE_URL}/chat/completions`, {
+    const res = await fetch(PROXY_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
