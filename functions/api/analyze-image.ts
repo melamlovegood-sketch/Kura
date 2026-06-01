@@ -16,21 +16,31 @@
 const DASHSCOPE_URL =
   'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
 
-const PROMPT = `这是一张商品截图。请优先读取图片中的文字内容（商品名称、品牌名、价格数字、面料成分等），不要描述图片画面。
+const PROMPT = `这是一张电商商品页面的截图。
+
+第一步：读取图片中所有可见文字。
+第二步：从文字中提取以下字段。
+
+严格规则：
+- 只从文字中提取，不要根据图片画面猜测
+- 如果图片里有价格数字，必须提取
+- 如果图片里有品牌名或店铺名，必须提取
+- 如果图片里有商品标题文字，必须作为 name 字段
+- 绝对不允许根据图片外观描述商品（如"织物展示牌"、"墙纸"等）
 
 仅返回 JSON，不要任何其他文字或 markdown：
 {
-  "name": "从文字中提取的商品名称",
-  "brand": "品牌名",
+  "name": "商品标题文字",
+  "brand": "品牌名或店铺名",
   "price": 价格数字或null,
   "category": "分类",
-  "fabric": "面料成分",
-  "color": "颜色",
-  "size": "尺码",
-  "channel": "购买渠道或平台",
+  "fabric": "面料成分文字",
+  "color": "颜色文字",
+  "size": "尺码文字",
+  "channel": "平台名称",
   "is_product_photo": true或false
 }
-找不到的字段返回 null。is_product_photo：如果这张图是清晰展示商品本身的主图返回 true；如果是吊牌、面料标签、价格页、订单截图等非主图返回 false。`
+找不到的字段返回 null。`
 
 interface AnalyzeImageBody {
   base64?: string
