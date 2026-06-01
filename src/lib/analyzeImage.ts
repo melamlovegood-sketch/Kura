@@ -10,14 +10,44 @@
  * Used by the home 「我现在想买」dialog and the 待购详情页「上传截图让 AI 填写」flow.
  */
 
-/** File → bare base64 (no `data:…;base64,` prefix), which the function expects. */
-const toBase64 = (file: File): Promise<string> =>
+/** Blob → bare base64 (no `data:…;base64,` prefix), which the function expects. */
+const toBase64 = (file: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '')
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+
+/**
+ * Downscale + re-encode the image to JPEG client-side before upload. Mobile
+ * photos are often 4–12 MB, which makes the base64 payload huge and the vision
+ * call slow or prone to failing — this brings a typical phone photo down to a few
+ * hundred KB. Falls back to the original file on any decode failure (e.g. a HEIC
+ * the browser can't draw to a canvas) so we never hang or lose the upload.
+ */
+async function compressImage(file: File, maxWidth = 1200, quality = 0.8): Promise<Blob> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { URL.revokeObjectURL(url); resolve(file); return }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(
+        (blob) => { URL.revokeObjectURL(url); resolve(blob ?? file) },
+        'image/jpeg',
+        quality,
+      )
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+    img.src = url
+  })
+}
 
 // qwen-vl-plus is inconsistent about the JSON keys it returns: sometimes the
 // English keys we asked for, sometimes the Chinese hints from the prompt template
@@ -65,11 +95,14 @@ export async function analyzeImage(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
-  const base64 = await toBase64(file)
+  const compressed = await compressImage(file)
+  const base64 = await toBase64(compressed)
   const res = await fetch('/api/analyze-image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base64, mimeType: file.type, apiKey }),
+    // compressed is JPEG; on the HEIC fallback it's the original file, so use its
+    // own type rather than assuming jpeg.
+    body: JSON.stringify({ base64, mimeType: compressed.type || file.type || 'image/jpeg', apiKey }),
     signal,
   })
   const data = (await res.json()) as
