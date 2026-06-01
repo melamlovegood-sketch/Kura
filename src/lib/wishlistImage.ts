@@ -35,7 +35,18 @@ export async function uploadWishlistImage(file: Blob, itemId: string): Promise<s
     contentType: type,
     upsert: true,
   })
-  if (error) throw new Error(`图片上传失败：${error.message}`)
+  if (error) {
+    // By far the most common cause of a silent "主图没保存" is that the bucket was
+    // never created (migration 0019 not run). Supabase returns "Bucket not found"
+    // here — turn that into an actionable reminder instead of a cryptic message.
+    if (/bucket.*not.*found/i.test(error.message)) {
+      throw new Error(
+        `图片上传失败：Storage 里还没有「${BUCKET}」存储桶。请到 Supabase Dashboard → Storage → New bucket 新建，` +
+          `名称填 ${BUCKET}，并勾选 Public（或在 SQL Editor 执行 migration 0019）。`,
+      )
+    }
+    throw new Error(`图片上传失败：${error.message}`)
+  }
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
   return data.publicUrl

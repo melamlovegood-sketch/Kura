@@ -75,27 +75,38 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
       const fields = await extractWishlistFields(aiApiKey, file, ctrl.signal)
       console.log('AI fields:', JSON.stringify(fields))
 
+      // Merge conservatively: a secondary upload (e.g. a fabric label) often makes
+      // the model return junk like "ITEMINFO-商品信息" for the name, and we must
+      // never clobber a value the user already has. shouldUpdate() rejects junk and
+      // only fills fields that are currently empty — so the screenshot can fill in
+      // blanks without overwriting good data.
       const patch: Partial<WishlistItem> = {}
-      if (fields.name) patch.item_name = fields.name
-      if (fields.brand) patch.brand = fields.brand
-      if (fields.price != null) patch.estimated_price = fields.price
-      if (fields.category) patch.category = fields.category
-      if (fields.fabric) patch.fabric = fields.fabric
-      if (fields.color) patch.color = fields.color
-      if (fields.size) patch.size = fields.size
-      if (fields.channel) patch.channel = fields.channel
+      if (shouldUpdate(it.item_name, fields.name)) patch.item_name = fields.name!
+      if (shouldUpdate(it.brand, fields.brand)) patch.brand = fields.brand!
+      if (shouldUpdate(it.category, fields.category)) patch.category = fields.category!
+      if (shouldUpdate(it.fabric, fields.fabric)) patch.fabric = fields.fabric!
+      if (shouldUpdate(it.color, fields.color)) patch.color = fields.color!
+      if (shouldUpdate(it.size, fields.size)) patch.size = fields.size!
+      if (shouldUpdate(it.channel, fields.channel)) patch.channel = fields.channel!
+      // Price is numeric (no junk-string problem) — only fill if currently empty,
+      // never overwrite a price the user already has.
+      if (fields.price != null && it.estimated_price == null) patch.estimated_price = fields.price
 
       // Save the upload as the 主图 when the model says it's a product photo, or
       // whenever the item still has no image at all — better a screenshot than the
       // 暂无主图 placeholder. Updating image_url re-renders the image immediately.
+      // Capture (don't swallow) upload failures so a missing bucket / RLS error is
+      // surfaced to the user instead of the image silently never appearing.
+      let uploadError: string | null = null
       if (fields.is_product_photo || !it.image_url) {
         try { patch.image_url = await uploadWishlistImage(file, it.id) }
-        catch { /* upload failed — keep the extracted text fields */ }
+        catch (e) { uploadError = (e as Error).message || '图片上传失败' }
       }
 
       const count = Object.keys(patch).length
       if (count > 0) await update(it.id, patch)
-      flash(count > 0 ? `已更新 ${count} 个字段` : 'AI 没识别出可填的信息')
+      if (uploadError) setError(uploadError)
+      else flash(count > 0 ? `已更新 ${count} 个字段` : 'AI 没识别出可填的信息')
     } catch (err) {
       if ((err as Error).name !== 'AbortError') setError((err as Error).message || 'AI 分析失败，请重试')
     } finally {
@@ -248,6 +259,29 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
       </ImageDropZone>
     </div>
   )
+}
+
+// Generic placeholders the vision model spits out instead of a real value — never
+// write any of these into a field.
+const JUNK = ['ITEMINFO', '商品信息', '商品名称', '商品标题', '未知']
+// Sentinel "empty" values a field may already hold (defaults / placeholders) that
+// should still be treated as fillable rather than a real existing value.
+const PLACEHOLDER = ['未知商品', '未填写', '未命名', '未分类', '未知']
+
+/**
+ * Whether an AI-extracted value should be written over what the item already has.
+ * Conservative by design (secondary uploads return garbage for unrelated fields):
+ *   - the AI returned a non-null value,
+ *   - it isn't a generic placeholder, and
+ *   - the field is currently empty (we never overwrite a real existing value).
+ * Applied to every text field, so name/brand are protected exactly like the rest.
+ */
+function shouldUpdate(existing: string | null, newVal: string | null): boolean {
+  if (!newVal) return false
+  if (JUNK.some((j) => newVal.includes(j))) return false
+  const cur = existing?.trim()
+  if (cur && !PLACEHOLDER.includes(cur)) return false
+  return true
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
