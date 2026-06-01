@@ -6,7 +6,7 @@ import { ImageDropZone } from '@/components/ui/image-drop-zone'
 import { useExecutionStore, type SOPRule } from '@/store/execution'
 import { useSettingsStore } from '@/store/settings'
 import { parseSOPRule } from '@/lib/parseSOPRule'
-import { fileToBase64, cn } from '@/lib/utils'
+import { fileToCompressedBase64, cn } from '@/lib/utils'
 
 /**
  * 购物原则 (SOP rules) — a single shared section used both in the 执行层 setup
@@ -180,7 +180,7 @@ function SOPAddModal({ onClose, onSave }: {
           </ul>
         ) : (
           <ImageDropZone
-            onFile={(base64, file) => { setImage({ name: file.name, base64 }); setError(null) }}
+            onFile={async (_base64, file) => { setImage({ name: file.name, base64: await fileToCompressedBase64(file) }); setError(null) }}
             className="flex flex-col gap-3"
           >
             <textarea
@@ -203,7 +203,7 @@ function SOPAddModal({ onClose, onSave }: {
               <Paperclip size={14} /> 上传截图
             </button>
             <input ref={fileRef} type="file" accept="image/*" className="hidden"
-              onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; setImage({ name: f.name, base64: await fileToBase64(f) }); setError(null); e.target.value = '' }} />
+              onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; setImage({ name: f.name, base64: await fileToCompressedBase64(f) }); setError(null); e.target.value = '' }} />
 
             {error && <p className="text-[13px] text-red-500">{error}</p>}
 

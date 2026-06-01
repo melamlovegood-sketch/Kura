@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ImageDropZone } from '@/components/ui/image-drop-zone'
 import { useSettingsStore } from '@/store/settings'
 import { useBudgetStore } from '@/store/budget'
-import { fileToBase64 } from '@/lib/utils'
+import { fileToCompressedBase64 } from '@/lib/utils'
 import {
   analyzeExperience,
   analyzeWithAI,
@@ -70,7 +70,8 @@ export function WorthItCard({ item, onClose }: { item: WishlistItem; onClose: ()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function handleFile(base64: string, file: File) { setImage({ file, base64 }) }
+  // base64 流向视觉模型(analyzeWithAI → worthItAnalysis)，先压缩再编码，避免手机原图过大。
+  async function handleFile(_base64: string, file: File) { setImage({ file, base64: await fileToCompressedBase64(file) }) }
 
   return (
     <Card className="border-amber-200 bg-amber-50/40">
@@ -95,7 +96,7 @@ export function WorthItCard({ item, onClose }: { item: WishlistItem; onClose: ()
           <div className="flex items-center gap-3">
             <button onClick={() => fileRef.current?.click()} className="text-[13px] text-ink-4 hover:text-ink-3 transition-colors">上传图片</button>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
-              const f = e.target.files?.[0]; if (!f) return; await handleFile(await fileToBase64(f), f); e.target.value = ''
+              const f = e.target.files?.[0]; if (!f) return; await handleFile('', f); e.target.value = ''
             }} />
             <div className="flex-1" />
             <Button size="sm" onClick={() => void runAI()}>开始评估</Button>

@@ -11,7 +11,7 @@ import { usePrinciplesStore } from '@/store/principles'
 import { addExecutionTransaction } from '@/store/transactions'
 import { useBudgetStore } from '@/store/budget'
 import { parseProduct } from '@/lib/parseProduct'
-import { fileToBase64 } from '@/lib/utils'
+import { fileToCompressedBase64 } from '@/lib/utils'
 import { DecisionBrief } from '@/components/execution/DecisionBrief'
 import { ShoppingPrinciplesSection } from '@/components/execution/ShoppingPrinciples'
 import { ResearchChecklist } from '@/components/execution/ResearchChecklist'
@@ -331,7 +331,7 @@ function RecordingAIFill({ onFilled }: { onFilled: (p: { item_name: string; esti
 
   return (
     <ImageDropZone
-      onFile={(base64, file) => { setImage({ name: file.name, base64 }); setError(null) }}
+      onFile={async (_base64, file) => { setImage({ name: file.name, base64: await fileToCompressedBase64(file) }); setError(null) }}
       className="flex flex-col gap-2 rounded-xl border-theme bg-card-alt p-3"
     >
       <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink-3">
@@ -356,7 +356,7 @@ function RecordingAIFill({ onFilled }: { onFilled: (p: { item_name: string; esti
           <Paperclip size={13} /> 上传截图
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden"
-          onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; setImage({ name: f.name, base64: await fileToBase64(f) }); e.target.value = '' }} />
+          onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; setImage({ name: f.name, base64: await fileToCompressedBase64(f) }); e.target.value = '' }} />
         <div className="flex-1" />
         <Button size="sm" onClick={() => void handleParse()} disabled={!hasInput || busy}>{busy ? '识别中…' : 'AI 填写'}</Button>
       </div>

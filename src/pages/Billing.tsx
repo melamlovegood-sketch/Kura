@@ -13,7 +13,7 @@ import { db } from '@/lib/db'
 import { addTransaction } from '@/store/transactions'
 import { parseTransaction, parseReceipt, isSupermarketReceipt } from '@/lib/parseTransaction'
 import { CATEGORY_META, CATEGORY_GROUPS } from '@/lib/categories'
-import { fileToBase64, formatAmount, formatMonth, cn } from '@/lib/utils'
+import { fileToCompressedBase64, formatAmount, formatMonth, cn } from '@/lib/utils'
 import { monthString } from '@/lib/generateMonthlyStory'
 import type { CategoryMain, ItemCategory, ParsedTransaction } from '@/types/db'
 
@@ -238,13 +238,15 @@ function AIRecordCard({ onSaved }: { onSaved: () => Promise<void> }) {
 
   const hasInput = !!text.trim() || !!image
 
-  function pickImage(base64: string, file: File) {
-    setImage({ file, base64 }); setParsed(null); setReceipt(null); setError(null)
+  // base64 流向视觉模型(parseTransaction / parseReceipt → routeIntent)，先压缩再编码，
+  // 否则手机原图(4–12MB)会让请求卡死/失败。file 保留原图用于文件名展示。
+  async function pickImage(_base64: string, file: File) {
+    setImage({ file, base64: await fileToCompressedBase64(file) }); setParsed(null); setReceipt(null); setError(null)
   }
   async function onInputFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    pickImage(await fileToBase64(file), file)
+    await pickImage('', file)
     e.target.value = ''
   }
 

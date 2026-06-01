@@ -6,7 +6,7 @@ import { ImageDropZone } from '@/components/ui/image-drop-zone'
 import { useSettingsStore } from '@/store/settings'
 import { usePrinciplesStore } from '@/store/principles'
 import { routeIntent } from '@/lib/ai/router'
-import { fileToBase64 } from '@/lib/utils'
+import { fileToCompressedBase64 } from '@/lib/utils'
 
 /**
  * 个人消费原则 — text or article-screenshot → AI-extracted principles that get
@@ -20,7 +20,8 @@ export function PrinciplesSection() {
   const [extracting, setExtracting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  function handleFileSelect(base64: string, file: File) { setImage({ file, base64 }) }
+  // base64 流向视觉模型(routeIntent)，先压缩再编码，避免手机原图过大让请求卡死/失败。
+  async function handleFileSelect(_base64: string, file: File) { setImage({ file, base64: await fileToCompressedBase64(file) }) }
 
   async function handleExtract() {
     if (!input.trim() && !image) return
@@ -56,7 +57,7 @@ export function PrinciplesSection() {
           <div className="flex items-center gap-3">
             <button onClick={() => fileRef.current?.click()} className="text-[13px] text-ink-4 hover:text-ink-3 transition-colors">上传截图</button>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
-              const f = e.target.files?.[0]; if (!f) return; handleFileSelect(await fileToBase64(f), f); e.target.value = ''
+              const f = e.target.files?.[0]; if (!f) return; await handleFileSelect('', f); e.target.value = ''
             }} />
             <div className="flex-1" />
             <Button size="sm" onClick={() => void handleExtract()} disabled={extracting || (!input.trim() && !image)}>

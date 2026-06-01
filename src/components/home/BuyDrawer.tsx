@@ -15,7 +15,7 @@ import { uploadWishlistImage } from '@/lib/wishlistImage'
 import { parsePriceTrack } from '@/lib/parsePriceTrack'
 import { parseBudgetUpdate } from '@/lib/parseBudgetUpdate'
 import { useBudgetStore } from '@/store/budget'
-import { fileToBase64, formatAmount } from '@/lib/utils'
+import { fileToCompressedBase64, formatAmount } from '@/lib/utils'
 import type { BudgetData, CategoryMain, ParsedBudgetUpdate, WishlistItem } from '@/types/db'
 
 type Product = ParsedProduct
@@ -75,17 +75,20 @@ export function BuyDrawer({ onClose }: { onClose: () => void }) {
     !image &&
     (/(预算|额度|上限)/.test(text) || (/(限|改成|调到|设为|调整)/.test(text) && /\d/.test(text)))
 
-  function handleFileSelect(base64: string, file: File) {
-    setImage({ file, base64 })
+  async function handleFileSelect(_base64: string, file: File) {
     setParsed(null) // input changed → previous parse is stale
     setError(null)
     setNotice(null)
+    // image.base64 流向「蹲一下价格」的视觉模型(parsePriceTrack → routeIntent)，必须先压缩，
+    // 否则手机原图(4–12MB)会让该请求卡死/失败。file 保留原图：另两条路径
+    // (analyzeImage、uploadWishlistImage)各自内部再压缩。
+    setImage({ file, base64: await fileToCompressedBase64(file) })
   }
 
   async function handleInputFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    handleFileSelect(await fileToBase64(file), file)
+    await handleFileSelect('', file)
     e.target.value = ''
   }
 

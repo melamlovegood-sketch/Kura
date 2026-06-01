@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { ImagePlus, Send, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSettingsStore } from '@/store/settings'
-import { fileToBase64 } from '@/lib/utils'
+import { fileToCompressedBase64 } from '@/lib/utils'
 import { buildDecisionChatSystemPrompt, type ExecutionContext } from '@/lib/generateDecisionBrief'
 import type { AIMessage, ContentPart } from '@/lib/ai/types'
 
@@ -62,7 +62,8 @@ export function DecisionChat({ context }: { context: ExecutionContext }) {
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
-    setImage({ file, base64: await fileToBase64(file) }); e.target.value = ''
+    // 压缩后再编码：base64 会随对话直接发给视觉模型，手机原图过大会让请求卡死/失败。
+    setImage({ file, base64: await fileToCompressedBase64(file) }); e.target.value = ''
   }
 
   return (
