@@ -92,13 +92,13 @@ export function WishlistDetailSheet({ itemId, onClose }: { itemId: string; onClo
       // never overwrite a price the user already has.
       if (fields.price != null && it.estimated_price == null) patch.estimated_price = fields.price
 
-      // Save the upload as the 主图 when the model says it's a product photo, or
-      // whenever the item still has no image at all — better a screenshot than the
-      // 暂无主图 placeholder. Updating image_url re-renders the image immediately.
-      // Capture (don't swallow) upload failures so a missing bucket / RLS error is
-      // surfaced to the user instead of the image silently never appearing.
+      // Only set the 主图 when the item has NO existing main image — a secondary
+      // upload (fabric label, hangtag, price page, etc.) may still fill empty text
+      // fields, but must never replace a main image the item already has. Capture
+      // (don't swallow) upload failures so a missing bucket / RLS error is surfaced
+      // to the user instead of the image silently never appearing.
       let uploadError: string | null = null
-      if (fields.is_product_photo || !it.image_url) {
+      if (!it.image_url) {
         try { patch.image_url = await uploadWishlistImage(file, it.id) }
         catch (e) { uploadError = (e as Error).message || '图片上传失败' }
       }
