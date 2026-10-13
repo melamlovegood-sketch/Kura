@@ -103,14 +103,20 @@ function ApiKeyStep({ onSkip, onNext }: { onSkip: () => void; onNext: () => void
   const [provider, setProvider] = useState<AIProvider>('claude')
   const [apiKey,   setApiKey]   = useState('')
   const [status,   setStatus]   = useState<'idle' | 'validating' | 'error'>('idle')
+  const [error, setError] = useState('')
 
   async function handleNext() {
     const key = apiKey.trim()
     if (!key) { onSkip(); return }
 
     setStatus('validating')
-    const valid = await validateKey(provider, key)
-    if (!valid) { setStatus('error'); return }
+    try {
+      await validateKey(provider, key)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '连接失败，请稍后重试')
+      setStatus('error')
+      return
+    }
 
     // Save to settings store (shared with Settings page).
     await useSettingsStore.getState().update({
@@ -136,7 +142,7 @@ function ApiKeyStep({ onSkip, onNext }: { onSkip: () => void; onNext: () => void
             {PROVIDERS.map((p) => (
               <button
                 key={p.value}
-                onClick={() => setProvider(p.value)}
+                onClick={() => { setProvider(p.value); setStatus('idle') }}
                 className={cn(
                   'rounded-lg border-theme px-3 py-1.5 text-[13px] font-medium transition-colors',
                   provider === p.value ? 'bg-accent text-on-accent' : 'text-ink-3 hover:bg-card-alt hover:text-ink-2',
@@ -160,7 +166,7 @@ function ApiKeyStep({ onSkip, onNext }: { onSkip: () => void; onNext: () => void
         </Field>
 
         {status === 'error' && (
-          <p className="text-[13px] text-red-500">Key 无效，请检查后重试</p>
+          <p className="text-[13px] text-red-500" role="alert">{error}</p>
         )}
       </div>
 
@@ -411,7 +417,7 @@ function Actions({ skipLabel, onSkip, nextLabel, onNext, nextDisabled }: {
 
 /* ── API key validation ───────────────────────────────────────────────── */
 
-async function validateKey(provider: AIProvider, key: string): Promise<boolean> {
+async function validateKey(provider: AIProvider, key: string): Promise<void> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 10_000)
   try {
@@ -422,12 +428,9 @@ async function validateKey(provider: AIProvider, key: string): Promise<boolean> 
       () => {},
       ctrl.signal,
     )
-    return true
   } catch (err) {
-    // AbortError means timeout — treat as failure so the user can retry.
-    if ((err as Error)?.name === 'AbortError') return false
-    // Any 4xx from the provider means the key is wrong/expired.
-    return false
+    if (ctrl.signal.aborted) throw new Error('连接超时，请稍后重试')
+    throw err
   } finally {
     clearTimeout(timer)
   }

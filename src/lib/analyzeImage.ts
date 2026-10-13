@@ -11,6 +11,7 @@
  */
 
 import { compressImage } from '@/lib/compressImage'
+import { assertAIResponse } from '@/lib/ai/response'
 
 /** Blob → bare base64 (no `data:…;base64,` prefix), which the function expects. */
 const toBase64 = (file: Blob): Promise<string> =>
@@ -77,6 +78,7 @@ export async function analyzeImage(
     body: JSON.stringify({ base64, mimeType: compressed.type || file.type || 'image/jpeg', apiKey }),
     signal,
   })
+  await assertAIResponse(res, 'Qwen')
   const data = (await res.json()) as
     | { ok: true; fields: unknown }
     | { ok: false; raw?: string; error?: string }

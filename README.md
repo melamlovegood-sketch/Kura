@@ -67,6 +67,19 @@ VITE_VAPID_PUBLIC_KEY=your-vapid-public-key
 
 客户端只能使用 Supabase anon key。服务端密钥和 VAPID 私钥应保存在相应平台的 Secrets 中，不能以 `VITE_` 变量暴露或提交到 Git。
 
+## 千问 API 与部署
+
+在设置中选择「通义千问」，填写百炼 API Key 和模型名称（默认 `qwen-vl-plus`）。文字请求通过 `/api/dashscope` 转发，商品截图通过 `/api/analyze-image` 解析；两者使用用户在设置中填写的 Key，不需要额外配置服务端千问密钥。
+
+- Vercel：将本仓库根目录作为项目目录，构建命令 `npm run build`，输出目录 `dist`。根目录 `api/` 下的函数必须与前端一起部署；仅上传 `dist` 静态文件无法使用千问。`vercel.json` 保留 API 路由，并让页面路径回退到 SPA。
+- Cloudflare Pages：保留 `functions/api/` 入口，与 Vercel 共用 `server/` 的代理逻辑。
+- 本地：`npm run dev` 和 `npm run preview` 都会启动相同的 API 处理逻辑。
+
+无需 Key 即可检查部署：向上述接口发送 POST 请求，应该收到 JSON 格式的 401「缺少 API Key」。如果收到 404 `NOT_FOUND` 或 HTML 页面，说明 API 函数未被部署；这不是 Key 无效。
+
+`npm test` 覆盖代理、流式响应、截图解析与错误诊断，使用模拟上游，无需真实 Key，也不产生模型调用费用。
+`npm run test:ui` 使用 Playwright 在独立游客环境中验证「一杯水 → 加进清单再想想」完整流程，使用测试配置和模拟上游，需要已安装 Playwright Chromium。
+
 ## 数据库与隐私
 
 请按编号执行 `supabase/migrations/` 中的完整迁移链。早期版本曾采用单用户、关闭 RLS 的原型结构；`0009_add_user_id.sql` 会迁移为多用户模型，为各表添加 `user_id`，重新启用 RLS，并用 `auth.uid() = user_id` 限制数据访问。

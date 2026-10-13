@@ -1,9 +1,10 @@
 import type { AIAdapter, AIMessage } from '../types'
+import { assertAIResponse } from '../response'
 
 // Qwen uses an OpenAI-compatible endpoint via dashscope. We never call dashscope
 // directly from the browser — that fails with ERR_CONNECTION_CLOSED in mainland
-// China — so every request goes through our same-origin Cloudflare Pages Function
-// (functions/api/dashscope.ts), which forwards it server-side and streams the SSE
+// China — so every request goes through our same-origin /api/dashscope handler
+// (Vercel, Cloudflare Pages or Vite), which forwards it and streams the SSE
 // response back unchanged. The user's own API key (from Settings) rides along in
 // the Authorization header; the function just relays it — no server-side secret.
 const PROXY_URL = '/api/dashscope'
@@ -23,16 +24,13 @@ export class QwenAdapter implements AIAdapter {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey.trim()}`,
       },
-      body: JSON.stringify({ model: this.model, messages, stream: true }),
+      body: JSON.stringify({ model: this.model.trim(), messages, stream: true }),
       signal,
     })
 
-    if (!res.ok) {
-      const err = await res.text()
-      throw new Error(`Qwen API error ${res.status}: ${err}`)
-    }
+    await assertAIResponse(res, 'Qwen')
 
     return readOpenAIStream(res, onChunk)
   }
@@ -43,49 +41,48 @@ export async function readOpenAIStream(
   res: Response,
   onChunk: (delta: string) => void,
 ): Promise<string> {
-  const reader = res.body!.getReader()
+  if (!res.body) throw new Error('AI 返回了空响应，请重试')
+  const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let full = ''
   let buf = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const payload = line.slice(6).trim()
-      if (payload === '[DONE]') return full
-
-      try {
-        const json = JSON.parse(payload)
-        // Surface API errors that arrive inside the stream body (HTTP was 200)
-        if (json.error) {
-          throw new Error(`Qwen stream error: ${json.error.message ?? JSON.stringify(json.error)}`)
-        }
-        // qwen-vl models can return delta.content as a string OR an array of parts
-        const rawDelta = json.choices?.[0]?.delta?.content
-        const delta =
-          typeof rawDelta === 'string'
-            ? rawDelta
-            : Array.isArray(rawDelta)
-              ? rawDelta.map((p: { text?: string } | string) => (typeof p === 'string' ? p : p?.text ?? '')).join('')
-              : ''
-        if (delta) {
-          full += delta
-          onChunk(delta)
-        }
-      } catch (e) {
-        // Re-throw real API errors; only swallow JSON parse failures on partial chunks
-        if (e instanceof Error && e.message.startsWith('Qwen stream error')) throw e
-        // malformed chunk, skip
-      }
+  function consume(line: string): boolean {
+    if (!line.startsWith('data:')) return false
+    const payload = line.slice(5).trim()
+    if (payload === '[DONE]') return true
+    if (!payload) return false
+    let json
+    try { json = JSON.parse(payload) } catch { return false }
+    if (json.error) {
+      throw new Error(`AI stream error: ${json.error.message ?? JSON.stringify(json.error)}`)
     }
+    const rawDelta = json.choices?.[0]?.delta?.content
+    const delta =
+      typeof rawDelta === 'string'
+        ? rawDelta
+        : Array.isArray(rawDelta)
+          ? rawDelta.map((p: { text?: string } | string) => (typeof p === 'string' ? p : p?.text ?? '')).join('')
+          : ''
+    if (delta) { full += delta; onChunk(delta) }
+    return false
   }
 
-  return full
+  try {
+    let finished = false
+    while (!finished) {
+      const { done, value } = await reader.read()
+      buf += done ? decoder.decode() : decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (consume(line)) { finished = true; break }
+      }
+      if (done) { if (!finished) consume(buf); break }
+    }
+    if (!full.trim()) throw new Error('AI 未返回文字，请检查模型是否支持对话后重试')
+    return full
+  } finally {
+    try { await reader.cancel() } finally { reader.releaseLock() }
+  }
 }
